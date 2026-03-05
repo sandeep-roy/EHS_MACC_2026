@@ -1,9 +1,41 @@
+
 (function () {
   // ========= Template =========
   const template = document.createElement("template");
   template.innerHTML = `
     <div id="macc-container" style="width:100%; height:100%; overflow:hidden;"></div>
   `;
+
+  // --------- utilities ----------
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const formatInt = (n) =>
+    Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  const format2 = (n) =>
+    Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+  // simple positive MAC gradient (yellow -> orange -> red)
+  function posMacColor(mac, maxPos) {
+    const t = maxPos > 0 ? clamp(mac / maxPos, 0, 1) : 0;
+    // interpolate between #F5D76E (yellow) -> #F39C12 (orange) -> #E74C3C (red)
+    const stops = [
+      [0, [245, 215, 110]],
+      [0.6, [243, 156, 18]],
+      [1.0, [231, 76, 60]]
+    ];
+    // find segment
+    let c0 = stops[0], c1 = stops[stops.length - 1];
+    for (let i = 0; i < stops.length - 1; i++) {
+      if (t >= stops[i][0] && t <= stops[i + 1][0]) {
+        c0 = stops[i]; c1 = stops[i + 1]; break;
+      }
+    }
+    const span = (c1[0] - c0[0]) || 1e-6;
+    const lt = (t - c0[0]) / span;
+    const r = Math.round(c0[1][0] + lt * (c1[1][0] - c0[1][0]));
+    const g = Math.round(c0[1][1] + lt * (c1[1][1] - c0[1][1]));
+    const b = Math.round(c0[1][2] + lt * (c1[1][2] - c0[1][2]));
+    return `rgb(${r},${g},${b})`;
+  }
 
   class VariableWidthMACC extends HTMLElement {
     constructor() {
@@ -19,8 +51,7 @@
       this._plotted = false;
       this._data = { project: [], abatement: [], mac: [] };
 
-      // Version banner (helps confirm cache busting)
-      try { console.log("[MACC] build=1.0.3 (feeds+readability) loaded"); } catch(_) {}
+      try { console.log("[MACC] build=1.0.4 (variable-width, true cum y2)"); } catch(_) {}
 
       // Load Plotly if needed
       if (typeof Plotly === "undefined") {
@@ -50,7 +81,7 @@
       };
     }
 
-    // ========= Lifecycle hooks (Optimized Story Experience)
+    // ========= Lifecycle hooks
     onCustomWidgetBeforeUpdate(changedProps) {
       if (changedProps && "maccBinding" in changedProps) {
         this._ingestBinding(changedProps.maccBinding);
@@ -69,7 +100,7 @@
       }
     }
 
-    // ========= Robust ingestion for all SAC binding shapes (including your tenant's)
+    // ========= Robust ingestion for SAC binding shapes (including your tenant)
     _ingestBinding(binding) {
       if (!binding) {
         this._setEmpty("Bind a model with a dimension and two measures.");
@@ -125,17 +156,16 @@
       };
 
       for (const r of rows) {
-        // Dimension (tenant-specific key first; fallbacks for other shapes)
+        // Dimension
         const d =
           r[dimKey] ||
           (Array.isArray(r.dimensions) && r.dimensions[0]) ||
           r.dimensions_0 ||
           {};
 
-        const proj =
-          d.description ?? d.text ?? d.label ?? d.id ?? "";
+        const proj = d.description ?? d.text ?? d.label ?? d.id ?? "";
 
-        // Measures (tenant-specific keys + fallbacks)
+        // Measures
         let abObj = r[abtKey];
         let macObj = r[macKey];
 
@@ -191,25 +221,18 @@
         rows.push({ Project: project[i], Abatement: abate[i], MAC: mac[i] });
       }
 
-      // Smart x-axis: log if there is any positive abatement, else linear
-      const posAbateExists = rows.some(r => r.Abatement > 0);
-      let xAxisType = posAbateExists ? "log" : "linear";
-
-      // If none are positive (e.g., extreme filters), still show something
-      if (!posAbateExists) {
-        rows = rows.map(r => ({ ...r, Abatement: Math.abs(r.Abatement) }));
-      }
-
-      // Sort by MAC (ascending)
+      // Sort by MAC (ascending), as per MACC convention
       rows.sort((a, b) => a.MAC - b.MAC);
 
-      // Cap widths so one project doesn't dominate (now 12% of total)
+      // Compute totals/limits
       const totalAbate = rows.reduce((s, r) => s + (r.Abatement || 0), 0);
       if (totalAbate <= 0) {
         this._setEmpty("No abatement values found.");
         return;
       }
-      const capLimit = totalAbate * 0.12; // tighter cap improves readability
+
+      // Cap widths so one project doesn't dominate: 12% of total
+      const capLimit = totalAbate * 0.12;
       rows = rows.map(r => ({ ...r, AbateShown: Math.min(r.Abatement, capLimit) }));
 
       // Minimum displayed width to keep tiny bars visible (0.5% of total)
@@ -217,7 +240,7 @@
       const minWidth = totalAbate * minFrac;
       rows = rows.map(r => ({ ...r, AbateShown: Math.max(r.AbateShown, minWidth) }));
 
-      // Cumulative positions
+      // Cumulative positions for x (variable widths)
       let cum = 0;
       rows = rows.map(r => {
         const xStart = cum;
@@ -226,78 +249,94 @@
         return { ...r, x_mid: (xStart + xEnd) / 2, CumShown: xEnd };
       });
 
-      // Scale cumulative line relative to MAC range, but place on secondary axis
+      // Prepare axes helpers
       const maxMAC = Math.max(1, ...rows.map(r => Math.abs(r.MAC)));
       const maxCum = Math.max(1e-6, ...rows.map(r => r.CumShown));
-      rows = rows.map(r => ({ ...r, CumScaled: (r.CumShown / maxCum) * maxMAC * 1.1 }));
+      const maxPosMac = Math.max(0, ...rows.map(r => r.MAC));
 
-      // ----------------------------------------
-      // PLOTLY TRACES (readability-optimized)
-      // ----------------------------------------
+      // Colors: negative MAC -> green; positive MAC -> gradient yellow->red
+      const colors = rows.map(r =>
+        r.MAC < 0 ? "#27ae60" : posMacColor(r.MAC, maxPosMac)
+      );
+
+      // Decide which bars get outside labels (avoid clutter)
+      const labelThreshold = totalAbate * 0.04; // show value label only if width >= 4% of total
+      const barText = rows.map(r =>
+        r.AbateShown >= labelThreshold ? formatInt(r.Abatement) : ""
+      );
+
+      // -------- TRACES --------
       const barTrace = {
         type: "bar",
-        x: rows.map(r => r.x_mid + (xAxisType === "log" ? 1e-6 : 0)),
-        y: rows.map(r => r.MAC),
-        width: rows.map(r => r.AbateShown),
+        x: rows.map(r => r.x_mid),          // variable-width bar centers
+        y: rows.map(r => r.MAC),            // MAC height
+        width: rows.map(r => r.AbateShown), // variable widths
         marker: {
-          color: rows.map(r => (r.MAC < 0 ? "#27ae60" : "#e74c3c")),
-          line: { color: "rgba(0,0,0,0.3)", width: 1 }
+          color: colors,
+          line: { color: "rgba(0,0,0,0.25)", width: 1 }
         },
-        // tooltips only (no persistent labels on bars)
-        text: rows.map(
-          r =>
-            `Project: ${r.Project}<br>` +
-            `MAC: ${r.MAC.toLocaleString(undefined, { maximumFractionDigits: 2 })} EUR/tCO₂e<br>` +
-            `Abatement: ${r.Abatement.toLocaleString()} tCO₂e<br>` +
-            `Width (Shown): ${r.AbateShown.toLocaleString()} tCO₂e`
-        ),
-        hoverinfo: "text",
+        // show minimal labels on sufficiently wide bars; rest via hover
+        text: barText,
+        textposition: "outside",
+        textfont: { size: 10 },
+        hovertemplate:
+          "<b>%{customdata[0]}</b><br>" +
+          "MAC: %{y:.2f} EUR/tCO₂e<br>" +
+          "Abatement: %{customdata[1]} tCO₂e<br>" +
+          "Width (Shown): %{customdata[2]} tCO₂e<extra></extra>",
+        customdata: rows.map(r => [r.Project, formatInt(r.Abatement), formatInt(r.AbateShown)]),
         name: "MAC"
       };
 
+      // Cumulative line on the right axis with value labels
       const cumTrace = {
         type: "scatter",
-        mode: "lines+markers",
-        x: rows.map(r => r.CumShown + (xAxisType === "log" ? 1e-6 : 0)),
-        y: rows.map(r => r.CumScaled),
+        mode: "lines+markers+text",
+        x: rows.map(r => r.CumShown),
+        y: rows.map(r => r.CumShown),  // y2 axis will represent actual cumulative abatement
+        yaxis: "y2",
         marker: { size: 6, color: "rgba(30, 100, 255, 0.95)" },
         line: { width: 2.5, color: "rgba(30, 100, 255, 0.95)" },
-        hoverinfo: "text",
-        text: rows.map(r => `Cumulative Abatement: ${r.CumShown.toLocaleString()} tCO₂e`),
-        name: "Cumulative",
-        yaxis: "y2" // secondary axis
+        text: rows.map(r => formatInt(r.CumShown)),
+        textposition: "top center",
+        textfont: { size: 10, color: "rgba(30, 100, 255, 0.95)" },
+        hovertemplate:
+          "Cumulative Abatement: %{y:.0f} tCO₂e<extra></extra>",
+        name: "Cumulative"
       };
 
-      // ----------------------------------------
-      // LAYOUT (secondary y-axis + margins + tick styling)
-      // ----------------------------------------
+      // -------- LAYOUT --------
       const layout = {
-        title: "Variable‑Width Marginal Abatement Cost Curve (MACC)",
-        margin: { t: 48, l: 70, r: 70, b: 60 },
+        title: "Marginal Abatement Cost Curve (MACC)",
+        margin: { t: 48, l: 72, r: 72, b: 64 },
         showlegend: false,
         hoverlabel: { bgcolor: "white", font: { size: 11 } },
+        // X axis: variable width—use linear scale so small bars are visible
         xaxis: {
           title: "Total Abatement (tCO₂e)",
-          type: xAxisType,
+          type: "linear",
           tickformat: "~s",               // 1k, 10k, 100k
           tickfont: { size: 10 },
           gridcolor: "rgba(0,0,0,0.06)",
-          minor: { showgrid: false }
+          rangemode: "tozero"
         },
+        // Left Y: MAC
         yaxis: {
           title: "MAC (EUR/tCO₂e)",
           zeroline: true,
           tickfont: { size: 10 },
-          gridcolor: "rgba(0,0,0,0.06)"
+          gridcolor: "rgba(0,0,0,0.06)",
+          range: [-Math.max(100, maxMAC * 1.15), Math.max(100, maxMAC * 1.15)]
         },
-        // Secondary y axis for cumulative curve so it no longer stretches MAC axis
+        // Right Y2: true cumulative abatement values (same units as X)
         yaxis2: {
-          title: "Scaled Cumulative (relative)",
+          title: "Cumulative Abatement (tCO₂e)",
           overlaying: "y",
           side: "right",
           showgrid: false,
           tickfont: { size: 10 },
-          rangemode: "tozero"
+          rangemode: "tozero",
+          range: [0, maxCum * 1.05]
         }
       };
 
@@ -310,6 +349,29 @@
           .then(() => (this._plotted = true))
           .catch(() => (this._plotted = false));
       }
+
+      // Optional: project name annotations (vertical) for small N
+      // (uncomment if you want labels under each bar; keep N<=25 to avoid clutter)
+      /*
+      if (rows.length <= 25) {
+        const ann = rows.map(r => ({
+          x: r.x_mid,
+          y: 0,
+          xref: "x",
+          yref: "y",
+          xanchor: "center",
+          yanchor: "top",
+          text: r.Project,
+          showarrow: false,
+          textangle: -90,
+          font: { size: 10, color: "#444" },
+          yshift: 18
+        }));
+        Plotly.relayout(this._container, { annotations: ann });
+      } else {
+        Plotly.relayout(this._container, { annotations: [] });
+      }
+      */
     }
   }
 
