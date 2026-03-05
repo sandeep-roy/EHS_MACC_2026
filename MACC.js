@@ -1,4 +1,3 @@
-
 (function () {
   // ========= Template =========
   const template = document.createElement("template");
@@ -40,15 +39,15 @@
       return {
         maccBinding: {
           feeds: [
-            { id: "dimension", type: "dimension" },              // Project
-            { id: "measure_abate", type: "mainStructureMember" },// Abatement
-            { id: "measure_mac", type: "mainStructureMember" }   // MAC
+            { id: "dimension",      type: "dimension" },            // Project
+            { id: "measure_abate",  type: "mainStructureMember" },  // Abatement
+            { id: "measure_mac",    type: "mainStructureMember" }   // MAC
           ]
         }
       };
     }
 
-    // ========= SAC lifecycle hooks =========
+    // ========= Lifecycle hooks (Optimized Story Experience)
     onCustomWidgetBeforeUpdate(changedProps) {
       if (changedProps && "maccBinding" in changedProps) {
         this._ingestBinding(changedProps.maccBinding);
@@ -67,73 +66,94 @@
       }
     }
 
-    // ========= Binding ingestion: ResultSet → arrays
+    // ========= Robust ingestion for all SAC binding shapes (including your tenant's)
     _ingestBinding(binding) {
-      // Some tenants send { data: [...] }, some { value:[...] }, etc. Be robust
-      const rows =
-        (binding && (binding.data || binding.value || binding.resultSet || binding.rows)) || [];
-console.log("=== RAW BINDING OBJECT ===");
-console.log(binding);
-
-if (Array.isArray(rows)) {
-  console.log("=== RAW ROW SAMPLE (first 3) ===");
-  console.log(rows.slice(0, 3));
-}
-      if (!Array.isArray(rows) || rows.length === 0) {
-        this._setEmpty("Bind a dimension (Project) and two measures (Abatement, MAC).");
+      if (!binding) {
+        this._setEmpty("Bind a model with a dimension and two measures.");
         return;
       }
 
-      const projects = [];
-      const abates = [];
-      const macs = [];
+      const rows =
+        binding.data ||
+        binding.value ||
+        binding.resultSet ||
+        binding.rows ||
+        [];
 
-      // SAC rows can carry different shapes. Community samples show shapes like:
-      //  r.dimensions[0].label / id and r.measures[0].raw, r.measures[1].raw
-      //  or flattened keys (dimensions_0, measures_0) in some examples.  [3](https://community.sap.com/t5/technology-blog-posts-by-members/transforming-sac-with-custom-widgets-part-4-custom-widgets-data-binding/ba-p/13566709)
-      for (const r of rows) {
-        // dimension
-        let proj = "";
-        if (Array.isArray(r.dimensions) && r.dimensions[0]) {
-          const d = r.dimensions[0];
-          proj = d.description ?? d.text ?? d.label ?? d.id ?? "";
-        } else if (r.dimensions_0) {
-          const d = r.dimensions_0;
-          proj = d.description ?? d.text ?? d.label ?? d.id ?? "";
-        }
-
-        // helper to coerce measure value
-        const getNum = (obj) => {
-          if (obj == null) return NaN;
-          if (typeof obj === "number") return obj;
-          if (typeof obj.raw === "number") return obj.raw;
-          if (typeof obj.value === "number") return obj.value;
-          if (typeof obj.formatted === "string") {
-            const n = Number(String(obj.formatted).replace(/[^\d.\-]/g, ""));
-            return Number.isFinite(n) ? n : NaN;
-          }
-          const n = Number(obj);
-          return Number.isFinite(n) ? n : NaN;
-        };
-
-        // measures (first two)
-        let m0, m1;
-        if (Array.isArray(r.measures)) {
-          m0 = r.measures[0];
-          m1 = r.measures[1];
-        } else {
-          m0 = r.measures_0;
-          m1 = r.measures_1;
-        }
-
-        projects.push(String(proj || ""));
-        abates.push(getNum(m0));
-        macs.push(getNum(m1));
+      if (!Array.isArray(rows) || rows.length === 0) {
+        this._setEmpty("No data rows. Check filters or data source.");
+        return;
       }
 
-      this._data.project = projects;
+      // Read metadata & feed IDs
+      const md = binding.metadata || {};
+      const feeds = md.feeds || {};
+
+      const findFeedIdByType = (t) =>
+        Object.keys(feeds).find(k => (feeds[k] && String(feeds[k].type).toLowerCase() === t));
+
+      const dimFeedId = feeds.dimension ? "dimension" : (findFeedIdByType("dimension") || "dimension");
+      const abtFeedId = feeds.measure_abate
+        ? "measure_abate"
+        : (Object.keys(feeds).find(k => /abate/i.test(k)) || findFeedIdByType("mainstructuremember"));
+      const macFeedId = feeds.measure_mac
+        ? "measure_mac"
+        : (Object.keys(feeds).find(k => /\bmac\b/i.test(k)) || findFeedIdByType("mainstructuremember"));
+
+      const dimKey = `${dimFeedId}_0`;
+      const abtKey = `${abtFeedId}_0`;
+      const macKey = `${macFeedId}_0`;
+
+      const projects = [];
+      const abates   = [];
+      const macs     = [];
+
+      const getNum = (obj) => {
+        if (obj == null) return NaN;
+        if (typeof obj === "number") return obj;
+        if (typeof obj.raw === "number") return obj.raw;
+        if (typeof obj.value === "number") return obj.value;
+        if (typeof obj.formatted === "string") {
+          const n = Number(String(obj.formatted).replace(/[^\d.\-]/g, ""));
+          return Number.isFinite(n) ? n : NaN;
+        }
+        const n = Number(obj);
+        return Number.isFinite(n) ? n : NaN;
+      };
+
+      for (const r of rows) {
+        // Dimension
+        const d =
+          r[dimKey] ||
+          (Array.isArray(r.dimensions) && r.dimensions[0]) ||
+          r.dimensions_0 ||
+          {};
+
+        const proj =
+          d.description ?? d.text ?? d.label ?? d.id ?? "";
+
+        // Measures (tenant-specific + fallbacks)
+        let abObj = r[abtKey];
+        let macObj = r[macKey];
+
+        if (abObj == null) {
+          if (Array.isArray(r.measures)) abObj = r.measures[0];
+          else abObj = r.measures_0;
+        }
+        if (macObj == null) {
+          if (Array.isArray(r.measures)) macObj = r.measures[1];
+          else macObj = r.measures_1;
+        }
+
+        projects.push(String(proj));
+        abates.push(getNum(abObj));
+        macs.push(getNum(macObj));
+      }
+
+      this._data.project   = projects;
       this._data.abatement = abates.map(v => (Number.isFinite(v) ? v : 0));
-      this._data.mac = macs.map(v => (Number.isFinite(v) ? v : 0));
+      this._data.mac       = macs.map(v => (Number.isFinite(v) ? v : 0));
+
       this._render();
     }
 
@@ -141,7 +161,7 @@ if (Array.isArray(rows)) {
     _setEmpty(msg) {
       if (this._container) {
         this._container.innerHTML =
-          `<div style="font:12px/1.4 var(--sapFontFamily,Arial); color:#6b6d70; padding:8px;">${msg}</div>`;
+          `<div style="font:12px var(--sapFontFamily,Arial); color:#6b6d70; padding:8px;">${msg}</div>`;
       }
       this._plotted = false;
     }
@@ -161,26 +181,29 @@ if (Array.isArray(rows)) {
         this._setEmpty("Row mismatch. Ensure both measures align with the dimension.");
         return;
       }
-      // filter non-positive abatement (x-axis is log)
+
       let rows = [];
       for (let i = 0; i < project.length; i++) {
-        rows.push({ Project: project[i], Abatement: Math.max(0, abate[i]), MAC: mac[i] });
-      }
-      rows = rows.filter(r => r.Abatement > 0);
-      if (rows.length === 0) {
-        this._setEmpty("No positive abatement values to plot on log scale.");
-        return;
+        rows.push({ Project: project[i], Abatement: abate[i], MAC: mac[i] });
       }
 
-      // sort by MAC
+      const posAbateExists = rows.some(r => r.Abatement > 0);
+      let xAxisType = posAbateExists ? "log" : "linear";
+
+      if (!posAbateExists) {
+        rows = rows.map(r => ({ ...r, Abatement: Math.abs(r.Abatement) }));
+      }
+
       rows.sort((a, b) => a.MAC - b.MAC);
 
-      // cap widths at 20% of total
-      const totalAbate = rows.reduce((s, r) => s + r.Abatement, 0);
+      const totalAbate = rows.reduce((s, r) => s + (r.Abatement || 0), 0);
+      if (totalAbate <= 0) {
+        this._setEmpty("No abatement values found.");
+        return;
+      }
       const capLimit = totalAbate * 0.20;
       rows = rows.map(r => ({ ...r, AbateShown: Math.min(r.Abatement, capLimit) }));
 
-      // cumulative positions
       let cum = 0;
       rows = rows.map(r => {
         const xStart = cum;
@@ -189,15 +212,13 @@ if (Array.isArray(rows)) {
         return { ...r, x_mid: (xStart + xEnd) / 2, CumShown: xEnd };
       });
 
-      // scale cum line to MAC axis
       const maxMAC = Math.max(1, ...rows.map(r => Math.abs(r.MAC)));
       const maxCum = Math.max(1e-6, ...rows.map(r => r.CumShown));
       rows = rows.map(r => ({ ...r, CumScaled: (r.CumShown / maxCum) * maxMAC * 1.1 }));
 
-      // traces
       const barTrace = {
         type: "bar",
-        x: rows.map(r => r.x_mid + 1e-6),
+        x: rows.map(r => r.x_mid + (xAxisType === "log" ? 1e-6 : 0)),
         y: rows.map(r => r.MAC),
         width: rows.map(r => r.AbateShown),
         marker: {
@@ -218,7 +239,7 @@ if (Array.isArray(rows)) {
       const cumTrace = {
         type: "scatter",
         mode: "lines+markers",
-        x: rows.map(r => r.CumShown + 1e-6),
+        x: rows.map(r => r.CumShown + (xAxisType === "log" ? 1e-6 : 0)),
         y: rows.map(r => r.CumScaled),
         marker: { size: 7, color: "blue" },
         line: { width: 3, color: "blue" },
@@ -229,7 +250,7 @@ if (Array.isArray(rows)) {
 
       const layout = {
         title: "Variable‑Width Marginal Abatement Cost Curve (MACC)",
-        xaxis: { title: "Total Abatement (tCO₂e)", type: "log" },
+        xaxis: { title: "Total Abatement (tCO₂e)", type: xAxisType },
         yaxis: { title: "MAC (EUR/tCO₂e)" },
         margin: { t: 50, l: 60, r: 40, b: 50 },
         showlegend: false,
