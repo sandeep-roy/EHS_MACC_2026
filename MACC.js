@@ -13,7 +13,7 @@
       this._shadow.appendChild(template.content.cloneNode(true));
       this._container = this._shadow.querySelector("#macc-container");
 
-      // Data arrays passed by SAC
+      // Data arrays
       this._data = {
         project: [],
         abatement: [],
@@ -22,9 +22,7 @@
 
       this._initialized = false;
 
-      // ------------------------------------------------
-      // Load Plotly dynamically (metadata.json forbids dependencies)
-      // ------------------------------------------------
+      // Load Plotly dynamically
       if (typeof Plotly === "undefined") {
         const script = document.createElement("script");
         script.src = "https://cdn.plot.ly/plotly-2.27.0.min.js";
@@ -39,28 +37,35 @@
       }
     }
 
-    // SAC resize hook
+    // Resize hook for SAC
     onCustomWidgetResize() {
-      if (this._initialized) {
+      if (this._initialized && this._container) {
         Plotly.Plots.resize(this._container);
       }
     }
 
-    // -------------------------------
-    // SAC property setters
-    // -------------------------------
+    // -----------------------------------------------
+    // SAC PROPERTY SETTERS (auto-convert strings → arrays)
+    // -----------------------------------------------
+
     set project(val) {
-      this._data.project = val || [];
+      if (typeof val === "string")
+        this._data.project = val.split(",").map(s => s.trim());
+      else this._data.project = val || [];
       this._render();
     }
 
     set abatement(val) {
-      this._data.abatement = (val || []).map(Number);
+      if (typeof val === "string")
+        this._data.abatement = val.split(",").map(Number);
+      else this._data.abatement = (val || []).map(Number);
       this._render();
     }
 
     set mac(val) {
-      this._data.mac = (val || []).map(Number);
+      if (typeof val === "string")
+        this._data.mac = val.split(",").map(Number);
+      else this._data.mac = (val || []).map(Number);
       this._render();
     }
 
@@ -74,14 +79,14 @@
       const abate = this._data.abatement;
       const mac = this._data.mac;
 
-      // Abort until all arrays have rows
-      if (!project.length || !abate.length || !mac.length) return;
+      // Prevent empty rendering
+      if (!project.length || !abate.length || !mac.length) {
+        this._container.innerHTML = "Please provide project, abatement, and MAC inputs.";
+        return;
+      }
 
-      const n = project.length;
       let rows = [];
-
-      // Merge into row objects
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i < project.length; i++) {
         rows.push({
           Project: project[i],
           Abatement: abate[i],
@@ -89,14 +94,12 @@
         });
       }
 
-      // Sort by MAC (standard MACC order)
+      // Sort by MAC
       rows.sort((a, b) => a.MAC - b.MAC);
 
-      // ----------------------------------------
-      // WIDTH CAPPING (prevents huge projects dominating)
-      // ----------------------------------------
+      // Width cap
       const totalAbate = rows.reduce((s, r) => s + r.Abatement, 0);
-      const capFactor = 0.20;            // 20% of total abatement max
+      const capFactor = 0.20;
       const capLimit = totalAbate * capFactor;
 
       rows = rows.map(r => ({
@@ -104,9 +107,7 @@
         AbateShown: Math.min(r.Abatement, capLimit)
       }));
 
-      // ----------------------------------------
-      // Compute cumulative x positions
-      // ----------------------------------------
+      // Cumulative width
       let cum = 0;
       rows = rows.map(r => {
         const x_start = cum;
@@ -119,9 +120,7 @@
         };
       });
 
-      // ----------------------------------------
-      // Scale cumulative line to MAC axis range
-      // ----------------------------------------
+      // Scale cumulative line
       const maxMAC = Math.max(...rows.map(r => Math.abs(r.MAC)));
       const maxCum = Math.max(...rows.map(r => r.CumShown));
 
@@ -131,30 +130,28 @@
       }));
 
       // ----------------------------------------
-      // Build Plotly traces
+      // PLOTLY TRACES
       // ----------------------------------------
-
-      // Bars with variable widths
       const barTrace = {
         type: "bar",
-        x: rows.map(r => r.x_mid + 1),        // +1 avoids log(0)
+        x: rows.map(r => r.x_mid + 1),
         y: rows.map(r => r.MAC),
         width: rows.map(r => r.AbateShown),
         marker: {
           color: rows.map(r => (r.MAC < 0 ? "#27ae60" : "#e74c3c")),
           line: { color: "black", width: 1 }
         },
-        text: rows.map(r =>
-          `Project: ${r.Project}<br>` +
-          `MAC: ${r.MAC.toFixed(2)} EUR/tCO₂e<br>` +
-          `Abatement: ${r.Abatement} tCO₂e<br>` +
-          `Width (Shown): ${r.AbateShown} tCO₂e`
+        text: rows.map(
+          r =>
+            `Project: ${r.Project}<br>` +
+            `MAC: ${r.MAC} EUR/tCO₂e<br>` +
+            `Abatement: ${r.Abatement} tCO₂e<br>` +
+            `Width (Shown): ${r.AbateShown} tCO₂e`
         ),
         hoverinfo: "text",
         name: "MAC"
       };
 
-      // Cumulative line
       const cumTrace = {
         type: "scatter",
         mode: "lines+markers",
@@ -167,33 +164,20 @@
         name: "Cumulative"
       };
 
-      // ----------------------------------------
-      // Layout
-      // ----------------------------------------
       const layout = {
         title: "Variable‑Width Marginal Abatement Cost Curve (MACC)",
-        xaxis: {
-          title: "Total Abatement (tCO₂e)",
-          type: "log"
-        },
-        yaxis: {
-          title: "MAC (EUR / tCO₂e)",
-          zeroline: true
-        },
+        xaxis: { title: "Total Abatement (tCO₂e)", type: "log" },
+        yaxis: { title: "MAC (EUR/tCO₂e)" },
         margin: { t: 50, l: 60, r: 40, b: 40 },
         showlegend: false,
         hoverlabel: { bgcolor: "white" }
       };
 
-      // Render
       Plotly.newPlot(this._container, [barTrace, cumTrace], layout, {
         displaylogo: false
       });
     }
   }
 
-  customElements.define(
-    "variable-width-macc",
-    VariableWidthMACC
-  );
+  customElements.define("variable-width-macc", VariableWidthMACC);
 })();
