@@ -72,7 +72,13 @@
       // Some tenants send { data: [...] }, some { value:[...] }, etc. Be robust
       const rows =
         (binding && (binding.data || binding.value || binding.resultSet || binding.rows)) || [];
+console.log("=== RAW BINDING OBJECT ===");
+console.log(binding);
 
+if (Array.isArray(rows)) {
+  console.log("=== RAW ROW SAMPLE (first 3) ===");
+  console.log(rows.slice(0, 3));
+}
       if (!Array.isArray(rows) || rows.length === 0) {
         this._setEmpty("Bind a dimension (Project) and two measures (Abatement, MAC).");
         return;
