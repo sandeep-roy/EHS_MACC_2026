@@ -1,5 +1,6 @@
+
 (function () {
-  // ===== Template =====
+  // ========= Template =========
   const template = document.createElement("template");
   template.innerHTML = `
     <div id="macc-container" style="width:100%; height:100%; overflow:hidden;"></div>
@@ -17,11 +18,7 @@
       // Internal state
       this._initialized = false;
       this._plotted = false;
-      this._data = {
-        project: [],
-        abatement: [],
-        mac: []
-      };
+      this._data = { project: [], abatement: [], mac: [] };
 
       // Load Plotly if needed
       if (typeof Plotly === "undefined") {
@@ -38,117 +35,68 @@
       }
     }
 
+    // ========= Tell SAC that this widget has a Data Binding called "maccBinding"
+    getDataBindings() {
+      return {
+        maccBinding: {
+          feeds: [
+            { id: "dimension", type: "dimension" },              // Project
+            { id: "measure_abate", type: "mainStructureMember" },// Abatement
+            { id: "measure_mac", type: "mainStructureMember" }   // MAC
+          ]
+        }
+      };
+    }
+
     // ========= SAC lifecycle hooks =========
-
-    /**
-     * Called by SAC after properties (incl. data binding) update.
-     * @param {object} changedProps - e.g., { dataBinding: <resultset> }
-     */
-    onCustomWidgetAfterUpdate(changedProps) {
-      if ("dataBinding" in changedProps) {
-        this._updateDataFromSAC(changedProps.dataBinding);
-      }
-    }
-
-    /**
-     * Some tenants fire before/after; be defensive.
-     */
     onCustomWidgetBeforeUpdate(changedProps) {
-      if ("dataBinding" in changedProps) {
-        this._updateDataFromSAC(changedProps.dataBinding, /*isBefore*/ true);
+      if (changedProps && "maccBinding" in changedProps) {
+        this._ingestBinding(changedProps.maccBinding);
       }
     }
 
-    /**
-     * SAC calls this on resize.
-     */
+    onCustomWidgetAfterUpdate(changedProps) {
+      if (changedProps && "maccBinding" in changedProps) {
+        this._ingestBinding(changedProps.maccBinding);
+      }
+    }
+
     onCustomWidgetResize() {
       if (this._initialized && this._container && this._plotted) {
-        try {
-          Plotly.Plots.resize(this._container);
-        } catch (e) {
-          // no-op
-        }
+        try { Plotly.Plots.resize(this._container); } catch (_) {}
       }
     }
 
-    /**
-     * Some SAC builds assign properties directly.
-     */
-    set dataBinding(val) {
-      this._updateDataFromSAC(val);
-    }
-
-    // ========= Data Binding (ResultSet) =========
-
-    /**
-     * Converts SAC ResultSet → arrays: project[], abatement[], mac[]
-     * Expects: 1 dimension (Project), 2 measures (Abatement, MAC)
-     * Accepts different metadata shapes; falls back to first two measures.
-     */
-    _updateDataFromSAC(binding, isBefore = false) {
-      if (!binding) {
-        this._setEmptyMessage("Bind a model with 1 dimension and 2 measures (Abatement, MAC).");
-        return;
-      }
-
-      // Rows: try common keys SAC uses for ResultSet payloads.
+    // ========= Binding ingestion: ResultSet → arrays
+    _ingestBinding(binding) {
+      // Some tenants send { data: [...] }, some { value:[...] }, etc. Be robust
       const rows =
-        binding.data ||
-        binding.value ||
-        binding.resultSet ||
-        binding.rows ||
-        [];
+        (binding && (binding.data || binding.value || binding.resultSet || binding.rows)) || [];
 
       if (!Array.isArray(rows) || rows.length === 0) {
-        this._setEmptyMessage("No data rows. Check story filters or binding.");
+        this._setEmpty("Bind a dimension (Project) and two measures (Abatement, MAC).");
         return;
       }
 
-      // Try to detect column names to pick correct measures
-      const measuresMeta =
-        (binding.columns && (binding.columns.measures || binding.columns.Measures)) ||
-        (binding.metadata && (binding.metadata.measures || binding.metadata.Measures)) ||
-        [];
-
-      const measureNames = measuresMeta.map(m =>
-        (m.name || m.id || m.label || "").toString().toLowerCase()
-      );
-
-      // Infer measure indices
-      let abatementIdx = measureNames.findIndex(n =>
-        /abat(e)?ment|volume|tco2e/.test(n)
-      );
-      let macIdx = measureNames.findIndex(n =>
-        /\bmac\b|cost|eur\/t/.test(n)
-      );
-
-      // Fallbacks if names not found
-      if (abatementIdx < 0) abatementIdx = 0;
-      if (macIdx < 0) macIdx = measureNames.length > 1 ? 1 : 0;
-      if (macIdx === abatementIdx && measureNames.length > 1) {
-        macIdx = 1; // avoid both mapping to the first measure
-      }
-
-      // Extract arrays robustly
-      const dimIndex = 0; // first dimension
       const projects = [];
       const abates = [];
       const macs = [];
 
+      // SAC rows can carry different shapes. Community samples show shapes like:
+      //  r.dimensions[0].label / id and r.measures[0].raw, r.measures[1].raw
+      //  or flattened keys (dimensions_0, measures_0) in some examples.  [3](https://community.sap.com/t5/technology-blog-posts-by-members/transforming-sac-with-custom-widgets-part-4-custom-widgets-data-binding/ba-p/13566709)
       for (const r of rows) {
-        // dimension label
-        const dimArr = r.dimensions || r.dimension || r.Dimensions || [];
-        const dimObj = dimArr[dimIndex] || {};
-        const proj =
-          dimObj.description ??
-          dimObj.text ??
-          dimObj.label ??
-          dimObj.id ??
-          ""; // fallback empty string
+        // dimension
+        let proj = "";
+        if (Array.isArray(r.dimensions) && r.dimensions[0]) {
+          const d = r.dimensions[0];
+          proj = d.description ?? d.text ?? d.label ?? d.id ?? "";
+        } else if (r.dimensions_0) {
+          const d = r.dimensions_0;
+          proj = d.description ?? d.text ?? d.label ?? d.id ?? "";
+        }
 
-        // measures
-        const msrArr = r.measures || r.Measures || r.values || [];
+        // helper to coerce measure value
         const getNum = (obj) => {
           if (obj == null) return NaN;
           if (typeof obj === "number") return obj;
@@ -158,33 +106,37 @@
             const n = Number(String(obj.formatted).replace(/[^\d.\-]/g, ""));
             return Number.isFinite(n) ? n : NaN;
           }
-          const asNum = Number(obj);
-          return Number.isFinite(asNum) ? asNum : NaN;
+          const n = Number(obj);
+          return Number.isFinite(n) ? n : NaN;
         };
 
-        const ab = getNum(msrArr[abatementIdx]);
-        const mc = getNum(msrArr[macIdx]);
+        // measures (first two)
+        let m0, m1;
+        if (Array.isArray(r.measures)) {
+          m0 = r.measures[0];
+          m1 = r.measures[1];
+        } else {
+          m0 = r.measures_0;
+          m1 = r.measures_1;
+        }
 
-        projects.push(String(proj));
-        abates.push(Number.isFinite(ab) ? ab : 0);
-        macs.push(Number.isFinite(mc) ? mc : 0);
+        projects.push(String(proj || ""));
+        abates.push(getNum(m0));
+        macs.push(getNum(m1));
       }
 
-      // Assign
       this._data.project = projects;
-      this._data.abatement = abates;
-      this._data.mac = macs;
-
-      // Render
+      this._data.abatement = abates.map(v => (Number.isFinite(v) ? v : 0));
+      this._data.mac = macs.map(v => (Number.isFinite(v) ? v : 0));
       this._render();
     }
 
     // ========= Rendering =========
-
-    _setEmptyMessage(msg) {
-      if (!this._container) return;
-      this._container.innerHTML =
-        `<div style="font: 12px/1.4 var(--sapFontFamily,Arial); color:#6b6d70; padding:8px;">${msg}</div>`;
+    _setEmpty(msg) {
+      if (this._container) {
+        this._container.innerHTML =
+          `<div style="font:12px/1.4 var(--sapFontFamily,Arial); color:#6b6d70; padding:8px;">${msg}</div>`;
+      }
       this._plotted = false;
     }
 
@@ -195,66 +147,51 @@
       const abate = (this._data.abatement || []).map(n => Number(n) || 0);
       const mac = (this._data.mac || []).map(n => Number(n) || 0);
 
-      // Guard conditions
       if (project.length === 0) {
-        this._setEmptyMessage("Bind a dimension (Project) and two measures (Abatement, MAC).");
+        this._setEmpty("Bind a dimension (Project) and two measures (Abatement, MAC).");
         return;
       }
       if (abate.length !== project.length || mac.length !== project.length) {
-        this._setEmptyMessage("Rows mismatch. Ensure both measures align with the dimension.");
+        this._setEmpty("Row mismatch. Ensure both measures align with the dimension.");
         return;
       }
-      if (abate.every(v => v === 0) && mac.every(v => v === 0)) {
-        this._setEmptyMessage("All-zero data. Check measure selection or story filter.");
-        return;
-      }
-
-      // Merge + clean (filter out non-positive abatement because of log axis on X)
+      // filter non-positive abatement (x-axis is log)
       let rows = [];
       for (let i = 0; i < project.length; i++) {
-        rows.push({
-          Project: project[i],
-          Abatement: Math.max(0, abate[i]),
-          MAC: mac[i]
-        });
+        rows.push({ Project: project[i], Abatement: Math.max(0, abate[i]), MAC: mac[i] });
       }
       rows = rows.filter(r => r.Abatement > 0);
-
       if (rows.length === 0) {
-        this._setEmptyMessage("No positive abatement values to plot on log scale.");
+        this._setEmpty("No positive abatement values to plot on log scale.");
         return;
       }
 
-      // Sort by MAC ascending (typical MACC)
+      // sort by MAC
       rows.sort((a, b) => a.MAC - b.MAC);
 
-      // Width capping to avoid single huge bars dominating (20% of total)
+      // cap widths at 20% of total
       const totalAbate = rows.reduce((s, r) => s + r.Abatement, 0);
       const capLimit = totalAbate * 0.20;
       rows = rows.map(r => ({ ...r, AbateShown: Math.min(r.Abatement, capLimit) }));
 
-      // Build cumulative positions
+      // cumulative positions
       let cum = 0;
       rows = rows.map(r => {
         const xStart = cum;
         const xEnd = cum + r.AbateShown;
         cum = xEnd;
-        return {
-          ...r,
-          x_mid: (xStart + xEnd) / 2,
-          CumShown: xEnd
-        };
+        return { ...r, x_mid: (xStart + xEnd) / 2, CumShown: xEnd };
       });
 
-      // Scale the cumulative line to MAC axis
-      const maxMAC = Math.max(1, ...rows.map(r => Math.abs(r.MAC))); // avoid 0
+      // scale cum line to MAC axis
+      const maxMAC = Math.max(1, ...rows.map(r => Math.abs(r.MAC)));
       const maxCum = Math.max(1e-6, ...rows.map(r => r.CumShown));
       rows = rows.map(r => ({ ...r, CumScaled: (r.CumShown / maxCum) * maxMAC * 1.1 }));
 
-      // Plotly traces
+      // traces
       const barTrace = {
         type: "bar",
-        x: rows.map(r => r.x_mid + 1e-6), // avoid log(0)
+        x: rows.map(r => r.x_mid + 1e-6),
         y: rows.map(r => r.MAC),
         width: rows.map(r => r.AbateShown),
         marker: {
@@ -295,17 +232,15 @@
 
       const config = { displaylogo: false };
 
-      // Render or update
       if (this._plotted) {
         Plotly.react(this._container, [barTrace, cumTrace], layout, config);
       } else {
         Plotly.newPlot(this._container, [barTrace, cumTrace], layout, config)
           .then(() => (this._plotted = true))
-          .catch(() => this._plotted = false);
+          .catch(() => (this._plotted = false));
       }
     }
   }
 
-  // Register custom element
   customElements.define("variable-width-macc", VariableWidthMACC);
 })();
