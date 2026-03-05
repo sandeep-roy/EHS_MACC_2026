@@ -193,7 +193,7 @@
   }
 
   customElements.define(
-    "macc-widget",
+    "variable-width-macc",
     VariableWidthMACC
   );
 })();
