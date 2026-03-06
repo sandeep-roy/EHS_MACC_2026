@@ -1,4 +1,5 @@
 (function () {
+
   const template = document.createElement("template");
   template.innerHTML = `
     <style>
@@ -26,7 +27,7 @@
 
     <div class="group">
       <label>X Padding (% of total, each side)</label>
-      <input id="xPadding" type="number" min="0" max="20" />
+      <input id="xPadding" type="number" min="0" max="20"/>
     </div>
 
     <div class="group">
@@ -60,18 +61,19 @@
     }
 
     _wire() {
-      const fire = (n, v) =>
+      const fire = (n,v) =>
         this.dispatchEvent(new CustomEvent("propertiesChanged", {
-          detail: { properties: { [n]: v } }
+          detail:{ properties:{ [n]:v } }
         }));
 
-      this._shadow.getElementById("widthCap").onchange  = (e) => fire("widthCap", Number(e.target.value));
-      this._shadow.getElementById("minWidth").onchange  = (e) => fire("minWidth", Number(e.target.value));
-      this._shadow.getElementById("xPadding").onchange  = (e) => fire("xPadding", Number(e.target.value));
-      this._shadow.getElementById("fontSize").onchange  = (e) => fire("fontSize", Number(e.target.value));
-      this._shadow.getElementById("colorMode").onchange = (e) => fire("colorMode", e.target.value);
+      this._shadow.getElementById("widthCap").onchange  = (e)=>fire("widthCap", Number(e.target.value));
+      this._shadow.getElementById("minWidth").onchange  = (e)=>fire("minWidth", Number(e.target.value));
+      this._shadow.getElementById("xPadding").onchange  = (e)=>fire("xPadding", Number(e.target.value));
+      this._shadow.getElementById("fontSize").onchange  = (e)=>fire("fontSize", Number(e.target.value));
+      this._shadow.getElementById("colorMode").onchange = (e)=>fire("colorMode", e.target.value);
     }
   }
 
   customElements.define("variable-width-macc-styling", VariableWidthMACCStyling);
+
 })();
