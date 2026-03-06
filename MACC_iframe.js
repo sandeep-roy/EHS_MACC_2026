@@ -73,7 +73,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    https://cdn.plot.ly/plotly-2.27.0.min.js</script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
 <body style="margin:0; padding:0; background:white;">
     <div id="chart" style="width:100%; height:100%; min-height:480px;"></div>
@@ -83,17 +83,16 @@
         const abate   = ${JSON.stringify(abatement)};
         const mac     = ${JSON.stringify(mac)};
 
-        // Build sorted rows
         let rows = project.map((p,i)=>({
             Project:p,
             Abate:abate[i],
             MAC:mac[i]
         })).sort((a,b)=>a.MAC-b.MAC);
 
-        // Compute positions
         const x = [];
         const y = [];
         const w = [];
+
         let cum = 0;
 
         rows.forEach(r => {
@@ -105,10 +104,12 @@
             x.push(mid);
             y.push(r.MAC);
             w.push(width);
+
             cum += width;
         });
 
-        // --- COLOR BINS ---
+
+        // -------- COLOR BINS ----------
         const colorBins = y.map(v => {
             if (v < 0) return "rgba(39,174,96,0.95)";        // green
             if (v < 25) return "rgba(241,196,15,0.95)";      // yellow
@@ -116,64 +117,58 @@
             return "rgba(231,76,60,0.95)";                   // red
         });
 
-        // --- Bar Trace ---
         const trace = {
             type:"bar",
             x:x,
             y:y,
             width:w,
             marker:{
-                color: colorBins,
+                color:colorBins,
                 line:{ color:"rgba(0,0,0,0.7)", width:1.5 }
             },
+            customdata: rows.map(r=>[r.Project, r.Abate]),
             hovertemplate:
                 "<b>%{customdata[0]}</b><br>"+
                 "MAC: %{y}<br>"+
                 "Abatement: %{customdata[1]}<br>"+
-                "<extra></extra>",
-            customdata: rows.map(r=>[r.Project, r.Abate])
+                "<extra></extra>"
         };
 
-        // --- Target line at 60,000 ---
+        // -------- TARGET LINE at 60,000 ----------
         const targetLine = {
-            type: "line",
-            x0: 60000,
-            x1: 60000,
-            y0: Math.min(...y) * 1.2,
-            y1: Math.max(...y) * 1.2,
-            line: { color: "black", width: 2, dash: "dash" }
+            type:"line",
+            x0:60000, x1:60000,
+            y0:Math.min(...y)*1.2,
+            y1:Math.max(...y)*1.2,
+            line:{ color:"black", width:3, dash:"dash" }
         };
 
-        // --- Carbon price line at 50 ---
+        // -------- CARBON PRICE LINE at 50 ----------
         const carbonLine = {
-            type: "line",
-            x0: -cum * 0.03,
-            x1: cum * 1.03,
-            y0: 50,
-            y1: 50,
-            line: { color: "blue", width: 2, dash: "dot" }
+            type:"line",
+            x0:-cum*0.03,
+            x1:cum*1.03,
+            y0:50, y1:50,
+            line:{ color:"blue", width:3, dash:"dot" }
         };
 
-        // Plot layout
         const layout = {
-            margin:{t:40,l:80,r:20,b:60},
+            margin:{t:50,l:80,r:40,b:60},
             hovermode:"closest",
-            shapes: [targetLine, carbonLine],
-            annotations: [
+            shapes:[targetLine, carbonLine],
+            annotations:[
                 {
-                    x: 60000,
-                    y: Math.max(...y) * 1.1,
-                    text: "Target: 60k tCO₂e",
-                    showarrow: false,
-                    font: {size: 12}
+                    x:60000, y:Math.max(...y)*1.15,
+                    text:"Target: 60k tCO₂e",
+                    showarrow:false,
+                    font:{size:12}
                 },
                 {
-                    x: cum * 1.0,
-                    y: 50,
-                    text: "Carbon price: 50 EUR/tCO₂e",
-                    showarrow: false,
-                    font: {size: 12},
-                    xanchor: "right"
+                    x:cum, y:50,
+                    text:"Carbon price: 50 EUR/tCO₂e",
+                    showarrow:false,
+                    font:{size:12},
+                    xanchor:"right"
                 }
             ],
             xaxis:{
@@ -193,6 +188,7 @@
             displaylogo:false,
             displayModeBar:true
         });
+
     </script>
 </body>
 </html>
