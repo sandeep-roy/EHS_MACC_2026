@@ -250,21 +250,33 @@
         : rows.map(r => (r.MAC < 0 ? "#27ae60" : posMacColor(r.MAC, maxPos)));
 
       // ---- TRACE (bars only + tooltips) ----
-      const barTrace = {
-        type: "bar",
-        x: rows.map(r => r.x_mid),
-        y: rows.map(r => r.MAC),
-        width: rows.map(r => r.AbateShown),
-        marker: { color: colors, line: { color: "rgba(0,0,0,0.25)", width: 1 } },
-        hovertemplate:
-          "<b>%{customdata[0]}</b><br>" +
-          "MAC: %{y:.2f} EUR/tCO₂e<br>" +
-          "Abatement: %{customdata[1]} tCO₂e<br>" +
-          "Width (Shown): %{customdata[2]} tCO₂e<extra></extra>",
-        customdata: rows.map(r => [r.Project, fmt0(r.Abatement), fmt0(r.AbateShown)]),
-        name: "MAC"
-      };
+      const tooltipData = rows.map(r => ({
+  project: r.Project,
+  abate:   r.Abatement,
+  width:   r.AbateShown
+}));
 
+const barTrace = {
+  type: "bar",
+  x: rows.map(r => r.x_mid),
+  y: rows.map(r => r.MAC),
+  width: rows.map(r => r.AbateShown),
+
+  marker: { color: colors, line: { color: "rgba(0,0,0,0.25)", width: 1 } },
+
+  // NEW: tooltip data stored safely
+  customdata: tooltipData,
+
+  // SAC‑safe hover template (always works)
+  hovertemplate:
+    "<b>%{customdata.project}</b><br>" +
+    "MAC: %{y:.2f} EUR/tCO₂e<br>" +
+    "Abatement: %{customdata.abate:,.0f} tCO₂e<br>" +
+    "Width (Shown): %{customdata.width:,.0f} tCO₂e" +
+    "<extra></extra>",
+
+  name: "MAC"
+};
       // Side padding so bars don’t look crushed at extremes
       const xPad = Math.max(minWidth * 2, maxCum * xPadPct);
       const xRange = [-xPad, maxCum + xPad];
