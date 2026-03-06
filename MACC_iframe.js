@@ -120,8 +120,8 @@
         // Color bins for MAC values
         const colors = y.map(v => {
           if (v < 0)   return "rgba(39,174,96,0.95)";   // green
-          if (v < 25)  return "rgba(241,196,15,0.95)";  // yellow
-          if (v < 50)  return "rgba(230,126,34,0.95)";  // orange
+          if (v < 200)  return "rgba(241,196,15,0.95)";  // yellow
+          if (v < 2500)  return "rgba(230,126,34,0.95)";  // orange
                         return "rgba(231,76,60,0.95)";   // red
         });
 
