@@ -9,7 +9,7 @@
         width:100%;
         height:100%;
         position:relative;
-        pointer-events:auto;
+        pointer-events:auto; 
       }
       #macc-container .modebar {
         right: 6px !important;
@@ -55,16 +55,15 @@
 
       this._data = { project:[], abatement:[], mac:[] };
 
-      // Defaults mirrored from JSON
       this._style = {
-        widthCap  : 10,        // %
-        minWidth  : 0.2,       // %
-        xPadding  : 5,         // %
-        fontSize  : 12,        // px
-        colorMode : "gradient" // or "single"
+        widthCap  : 10,
+        minWidth  : 0.2,
+        xPadding  : 5,
+        fontSize  : 12,
+        colorMode : "gradient"
       };
 
-      console.log("[MACC] v1.0.9 loaded");
+      console.log("[MACC] v1.1.0 loaded");
 
       if (typeof Plotly === "undefined") {
         const s = document.createElement("script");
@@ -84,7 +83,6 @@
     connectedCallback(){ try { this._resizeObserver.observe(this._container); } catch(_){} }
     disconnectedCallback(){ try { this._resizeObserver.disconnect(); } catch(_){} }
 
-    /* ===== dataBindings/feeds for Builder panel ===== */
     getDataBindings() {
       return {
         maccBinding: {
@@ -97,7 +95,6 @@
       };
     }
 
-    /* ===== styling properties set by Styling panel ===== */
     set widthCap(v){  this._style.widthCap  = Number(v)||10;  this._render(); }
     set minWidth(v){  this._style.minWidth  = Number(v)||0.2; this._render(); }
     set xPadding(v){  this._style.xPadding  = Number(v)||5;   this._render(); }
@@ -121,7 +118,9 @@
       }
     }
 
-    /* ===== robust binding ingestion (works after filters) ===== */
+    /* ============================
+       SAFE BINDING INGESTION
+    =============================== */
     _ingestBinding(binding){
       try {
         if (!binding) { this._setEmpty("Bind Project + Abatement + MAC."); return; }
@@ -133,11 +132,9 @@
         const feeds = md.feeds || {};
         const findByType = (t)=>Object.keys(feeds).find(k => (feeds[k] && String(feeds[k].type).toLowerCase()===t));
 
-        const dimId = feeds.dimension ? "dimension" : (findByType("dimension")||"dimension");
-        const abId  = feeds.measure_abate ? "measure_abate"
-                    : (Object.keys(feeds).find(k=>/abate/i.test(k)) || findByType("mainstructuremember"));
-        const macId = feeds.measure_mac ? "measure_mac"
-                    : (Object.keys(feeds).find(k=>/\bmac\b/i.test(k)) || findByType("mainstructuremember"));
+        const dimId = feeds.dimension     ? "dimension"     : (findByType("dimension")||"dimension");
+        const abId  = feeds.measure_abate ? "measure_abate" : (Object.keys(feeds).find(k=>/abate/i.test(k))||findByType("mainstructuremember"));
+        const macId = feeds.measure_mac   ? "measure_mac"   : (Object.keys(feeds).find(k=>/\bmac\b/i.test(k))||findByType("mainstructuremember"));
 
         const dimKey = `${dimId}_0`;
         const abKey  = `${abId}_0`;
@@ -186,10 +183,16 @@
       this._plotted=false;
     }
 
+    /* ============================
+       RENDER (with tooltip fixes)
+    =============================== */
     _render(){
       if (!this._initialized || !this._container) return;
 
-      const P = this._data.project, A = this._data.abatement, M = this._data.mac;
+      const P = this._data.project, 
+            A = this._data.abatement, 
+            M = this._data.mac;
+
       if (P.length===0) { this._setEmpty("No data."); return; }
       if (A.length!==P.length || M.length!==P.length) { this._setEmpty("Row mismatch."); return; }
 
@@ -207,11 +210,11 @@
 
       const capLim = total*capPct;
       const minLim = total*minPct;
+
       rows = rows.map(r => ({...r, AbateShown: clamp(r.Abatement, minLim, capLim)}));
 
-      // absolute pixel minimum to keep bars/hover usable after heavy filters
-      const pxMin  = 12;
-      const pxToAb = total / Math.max(1, this._container.clientWidth);
+      const pxMin = 12;
+      const pxToAb = total / Math.max(1,this._container.clientWidth);
       rows = rows.map(r => ({...r, AbateShown: Math.max(r.AbateShown, pxMin*pxToAb)}));
 
       let cum=0;
@@ -221,14 +224,19 @@
       });
 
       const maxCum = cum;
-      const maxPos = Math.max(0, ...rows.map(r=>r.MAC));
-      const maxAbs = Math.max(1, ...rows.map(r=>Math.abs(r.MAC)));
+      const maxPos = Math.max(0,...rows.map(r=>r.MAC));
+      const maxAbs = Math.max(1,...rows.map(r=>Math.abs(r.MAC)));
 
       const colors = (this._style.colorMode==="single")
         ? rows.map(r=> (r.MAC<0 ? "#27ae60" : "#E67E22"))
         : rows.map(r=> (r.MAC<0 ? "#27ae60" : posMacGradient(r.MAC, maxPos)));
 
-      const tooltipData = rows.map(r => ({ project:r.Project, abate:r.Abatement, width:r.AbateShown }));
+      /* --- FILTER-SAFE customdata (CRITICAL FOR HOVER) --- */
+      const tooltipData = rows.map(r => ({
+        project: String(r.Project || ""),
+        abate  : Number(r.Abatement || 0),
+        width  : Number(r.AbateShown || 0)
+      }));
 
       const barTrace = {
         type:"bar",
@@ -236,13 +244,21 @@
         y:rows.map(r=>r.MAC),
         width:rows.map(r=>r.AbateShown),
         marker:{ color:colors, line:{ color:"rgba(0,0,0,0.25)", width:1 } },
+
         customdata: tooltipData,
+
+        /* --- SAC-SAFE TEMPLATE (NO :,.* formatting) --- */
         hovertemplate:
           "<b>%{customdata.project}</b><br>"+
-          "MAC: %{y:.2f} EUR/tCO₂e<br>"+
-          "Abatement: %{customdata.abate:,.0f} tCO₂e<br>"+
-          "Width (Shown): %{customdata.width:,.0f} tCO₂e<extra></extra>",
-        name:"MAC"
+          "MAC: %{y} EUR/tCO₂e<br>"+
+          "Abatement: %{customdata.abate} tCO₂e<br>"+
+          "Width: %{customdata.width} tCO₂e<extra></extra>",
+
+        hoverlabel:{
+          bgcolor:"white",
+          bordercolor:"#444",
+          font:{size:fsize}
+        }
       };
 
       const pad = Math.max(pxMin*pxToAb, maxCum*padPct);
@@ -268,7 +284,8 @@
           titlefont:{size:fsize},
           showline:true, mirror:true, zeroline:true, gridcolor:"rgba(0,0,0,0.06)"
         },
-        bargap:0, bargroupgap:0
+        bargap:0,
+        bargroupgap:0
       };
 
       const config = {
@@ -280,17 +297,24 @@
 
       try {
         if (this._plotted) Plotly.react(this._container, [barTrace], layout, config);
-        else awaitable( Plotly.newPlot(this._container, [barTrace], layout, config) )
-          .then(()=>this._plotted=true).catch(()=>this._plotted=false);
+        else {
+          const p = Plotly.newPlot(this._container, [barTrace], layout, config);
+          if (p && typeof p.then==="function") p.then(()=>this._plotted=true);
+          else this._plotted=true;
+        }
       } catch(_){}
 
-      setTimeout(()=>{ try { Plotly.Plots.resize(this._container); } catch(_){} }, 60);
+      /* --- FORCE TOOLTIP HITBOX ALWAYS ACTIVE --- */
+      setTimeout(()=>{
+        try {
+          const svg = this._container.querySelector(".main-svg");
+          if (svg) svg.style.pointerEvents = "auto";
+        } catch(_){}
+        try { Plotly.Plots.resize(this._container); } catch(_){}
+      },60);
     }
   }
 
   customElements.define("variable-width-macc", VariableWidthMACC);
-
-  // small helper in case older engines don't like awaiting
-  function awaitable(p){ return (p && typeof p.then==="function") ? p : Promise.resolve(); }
 
 })();
