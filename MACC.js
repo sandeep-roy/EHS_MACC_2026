@@ -1,8 +1,23 @@
 (function () {
-  // ========= Template =========
+  // ========= Template with CSS to right-align the Plotly modebar =========
   const template = document.createElement("template");
   template.innerHTML = `
-    <div id="macc-container" style="width:100%; height:100%; overflow:hidden;"></div>
+    <style>
+      :host { display:block; width:100%; height:100%; }
+      #macc-container {
+        width:100%; height:100%;
+        position:relative;        /* for absolute children (modebar) */
+        pointer-events:auto;      /* allow hover/tips in SAC */
+        background:transparent;
+      }
+      /* Pin Plotly modebar top-right inside the container */
+      #macc-container .modebar {
+        right: 6px !important;
+        left: auto !important;
+        top: 6px !important;
+      }
+    </style>
+    <div id="macc-container"></div>
   `;
 
   // ---- helpers ----
@@ -20,7 +35,7 @@
     ];
     let c0 = stops[0], c1 = stops[stops.length - 1];
     for (let i = 0; i < stops.length - 1; i++) {
-      if (t >= stops[i][0] && t <= stops[i+1][0]) { c0 = stops[i]; c1 = stops[i+1]; break; }
+      if (t >= stops[i][0] && t <= stops[i + 1][0]) { c0 = stops[i]; c1 = stops[i + 1]; break; }
     }
     const span = (c1[0] - c0[0]) || 1e-6;
     const lt = (t - c0[0]) / span;
@@ -44,7 +59,17 @@
       this._plotted = false;
       this._data = { project: [], abatement: [], mac: [] };
 
-      try { console.log("[MACC] build=1.0.5 (bars only, clearer axes)"); } catch (_) {}
+      // Style properties (with defaults matching JSON)
+      this._style = {
+        widthCap: 10,     // %
+        minWidth: 0.2,    // %
+        xPadding: 5,      // %
+        fontSize: 12,     // px
+        colorMode: "gradient" // "gradient" | "single"
+      };
+
+      // Version tag (helps confirm cache-busting)
+      try { console.log("[MACC] build=1.0.7 (bars-only, styling panel, resize, modebar right)"); } catch (_) {}
 
       // Load Plotly if needed
       if (typeof Plotly === "undefined") {
@@ -56,7 +81,17 @@
       } else {
         this._initialized = true;
       }
+
+      // ResizeObserver – resize even if SAC doesn’t call our hook
+      this._resizeObserver = new (window.ResizeObserver || class { observe(){} disconnect(){} })(() => {
+        if (this._initialized && this._plotted) {
+          try { Plotly.Plots.resize(this._container); } catch (_) {}
+        }
+      });
     }
+
+    connectedCallback()   { try { this._resizeObserver.observe(this._container); } catch (_) {} }
+    disconnectedCallback(){ try { this._resizeObserver.disconnect(); } catch (_) {} }
 
     // ======= Data Binding advert (feeds) =======
     getDataBindings() {
@@ -71,13 +106,27 @@
       };
     }
 
+    // ======= Property setters (Styling panel) =======
+    set widthCap(v)  { this._style.widthCap  = Number(v) || 10;  this._render(); }
+    set minWidth(v)  { this._style.minWidth  = Number(v) || 0.2; this._render(); }
+    set xPadding(v)  { this._style.xPadding  = Number(v) || 5;   this._render(); }
+    set fontSize(v)  { this._style.fontSize  = Number(v) || 12;  this._render(); }
+    set colorMode(v) { this._style.colorMode = (v || "gradient"); this._render(); }
+
     // ======= SAC lifecycle =======
-    onCustomWidgetBeforeUpdate(changedProps) {
-      if (changedProps && "maccBinding" in changedProps) this._ingestBinding(changedProps.maccBinding);
+    onCustomWidgetBeforeUpdate(changedProps) { this._applyChangedProps(changedProps); }
+    onCustomWidgetAfterUpdate(changedProps)  { this._applyChangedProps(changedProps); }
+
+    _applyChangedProps(changedProps) {
+      if (!changedProps) return;
+      if ("maccBinding" in changedProps) this._ingestBinding(changedProps.maccBinding);
+
+      // react to styling props changed by the Styling panel
+      ["widthCap","minWidth","xPadding","fontSize","colorMode"].forEach(p => {
+        if (p in changedProps) this[p] = changedProps[p];
+      });
     }
-    onCustomWidgetAfterUpdate(changedProps) {
-      if (changedProps && "maccBinding" in changedProps) this._ingestBinding(changedProps.maccBinding);
-    }
+
     onCustomWidgetResize() {
       if (this._initialized && this._container && this._plotted) {
         try { Plotly.Plots.resize(this._container); } catch (_) {}
@@ -90,15 +139,13 @@
       const rows =
         binding.data || binding.value || binding.resultSet || binding.rows || [];
       if (!Array.isArray(rows) || rows.length === 0) {
-        this._setEmpty("No data rows. Check filters or data source.");
-        return;
+        this._setEmpty("No data rows. Check filters or data source."); return;
       }
 
       const md = binding.metadata || {};
       const feeds = md.feeds || {};
       const findFeedIdByType = (t) =>
         Object.keys(feeds).find(k => (feeds[k] && String(feeds[k].type).toLowerCase() === t));
-
       const dimFeedId = feeds.dimension ? "dimension" : (findFeedIdByType("dimension") || "dimension");
       const abtFeedId = feeds.measure_abate
         ? "measure_abate"
@@ -106,7 +153,6 @@
       const macFeedId = feeds.measure_mac
         ? "measure_mac"
         : (Object.keys(feeds).find(k => /\bmac\b/i.test(k)) || findFeedIdByType("mainstructuremember"));
-
       const dimKey = `${dimFeedId}_0`;
       const abtKey = `${abtFeedId}_0`;
       const macKey = `${macFeedId}_0`;
@@ -114,7 +160,6 @@
       const projects = [];
       const abates   = [];
       const macs     = [];
-
       const getNum = (obj) => {
         if (obj == null) return NaN;
         if (typeof obj === "number") return obj;
@@ -129,11 +174,8 @@
       };
 
       for (const r of rows) {
-        // dimension
         const d = r[dimKey] || (Array.isArray(r.dimensions) && r.dimensions[0]) || r.dimensions_0 || {};
         const proj = d.description ?? d.text ?? d.label ?? d.id ?? "";
-
-        // measures
         let abObj = r[abtKey], macObj = r[macKey];
         if (abObj == null) { if (Array.isArray(r.measures)) abObj = r.measures[0]; else abObj = r.measures_0; }
         if (macObj == null) { if (Array.isArray(r.measures)) macObj = r.measures[1]; else macObj = r.measures_1; }
@@ -167,47 +209,53 @@
 
       if (project.length === 0) { this._setEmpty("Bind Project (dimension) and Abatement & MAC (measures)."); return; }
       if (abate.length !== project.length || mac.length !== project.length) {
-        this._setEmpty("Row mismatch. Ensure both measures align with the dimension.");
-        return;
+        this._setEmpty("Row mismatch. Ensure both measures align with the dimension."); return;
       }
 
-      // Build & sort rows by MAC
+      // Build & sort by MAC
       let rows = [];
       for (let i = 0; i < project.length; i++) rows.push({ Project: project[i], Abatement: abate[i], MAC: mac[i] });
       rows.sort((a, b) => a.MAC - b.MAC);
 
-      // Totals
       const totalAbate = rows.reduce((s, r) => s + (r.Abatement || 0), 0);
       if (totalAbate <= 0) { this._setEmpty("No abatement values found."); return; }
 
-      // Width controls: reduce dominance + prevent vanishing bars
-      const capLimit  = totalAbate * 0.10; // 10% cap (tighter than before)
-      const minWidth  = totalAbate * 0.002; // 0.2% min width (smaller than before)
+      // Pull styling settings (with bounds)
+      const widthCapPct = clamp(this._style.widthCap, 1, 50) / 100;    // 1–50%
+      const minWidthPct = clamp(this._style.minWidth, 0.05, 5) / 100;  // 0.05–5%
+      const xPadPct     = clamp(this._style.xPadding, 0, 20) / 100;    // 0–20%
+      const fontSize    = clamp(this._style.fontSize, 8, 24);
+
+      // Width controls
+      const capLimit = totalAbate * widthCapPct;
+      const minWidth = totalAbate * minWidthPct;
       rows = rows.map(r => ({ ...r, AbateShown: clamp(r.Abatement, minWidth, capLimit) }));
 
       // Variable-width positions
       let cum = 0;
       rows = rows.map(r => {
         const xStart = cum;
-        const xEnd = cum + r.AbateShown;
+        const xEnd   = cum + r.AbateShown;
         cum = xEnd;
         return { ...r, x_mid: (xStart + xEnd) / 2, CumShown: xEnd };
       });
-      const maxCum = Math.max(1e-6, ...rows.map(r => r.CumShown));
-      const maxPosMac = Math.max(0, ...rows.map(r => r.MAC));
-      const maxAbsMac = Math.max(1, ...rows.map(r => Math.abs(r.MAC)));
+
+      const maxCum   = Math.max(1e-6, ...rows.map(r => r.CumShown));
+      const maxPos   = Math.max(0, ...rows.map(r => r.MAC));
+      const maxAbs   = Math.max(1, ...rows.map(r => Math.abs(r.MAC)));
 
       // Colors
-      const colors = rows.map(r => (r.MAC < 0 ? "#27ae60" : posMacColor(r.MAC, maxPosMac)));
+      const colors = (this._style.colorMode === "single")
+        ? rows.map(r => (r.MAC < 0 ? "#27ae60" : "#E67E22")) // negative green / single positive orange
+        : rows.map(r => (r.MAC < 0 ? "#27ae60" : posMacColor(r.MAC, maxPos)));
 
-      // ---- TRACE (bars only, tooltip on hover) ----
+      // ---- TRACE (bars only + tooltips) ----
       const barTrace = {
         type: "bar",
-        x: rows.map(r => r.x_mid),          // center positions
-        y: rows.map(r => r.MAC),            // MAC height
-        width: rows.map(r => r.AbateShown), // variable width
+        x: rows.map(r => r.x_mid),
+        y: rows.map(r => r.MAC),
+        width: rows.map(r => r.AbateShown),
         marker: { color: colors, line: { color: "rgba(0,0,0,0.25)", width: 1 } },
-        text: [],  // no persistent labels
         hovertemplate:
           "<b>%{customdata[0]}</b><br>" +
           "MAC: %{y:.2f} EUR/tCO₂e<br>" +
@@ -217,40 +265,51 @@
         name: "MAC"
       };
 
-      // X padding so bars don't look crushed at edges
-      const xPad = maxCum * 0.03;
+      // Side padding so bars don’t look crushed at extremes
+      const xPad = Math.max(minWidth * 2, maxCum * xPadPct);
       const xRange = [-xPad, maxCum + xPad];
 
-      // ---- LAYOUT (clearer axes, no cumulative, hover on bars) ----
+      // ---- LAYOUT ----
       const layout = {
-        title: "Marginal Abatement Cost Curve (MACC)",
-        margin: { t: 46, l: 76, r: 30, b: 66 },
+        margin: { t: 36, l: 76, r: 30, b: 64 },
+        title: { text: "Marginal Abatement Cost Curve (MACC)", font: { size: fontSize + 2 } },
         showlegend: false,
         hovermode: "closest",
-        hoverlabel: { bgcolor: "white", font: { size: 11 } },
+        hoverdistance: 20,
+        spikedistance: 20,
         xaxis: {
           title: "Total Abatement (tCO₂e)",
           type: "linear",
           range: xRange,
-          tickformat: "~s",            // 1k, 10k, 100k
-          tickfont: { size: 11 },
+          tickformat: "~s",
+          tickfont: { size: fontSize },
+          titlefont: { size: fontSize },
           showline: true,
           mirror: true,
           gridcolor: "rgba(0,0,0,0.06)"
         },
         yaxis: {
           title: "MAC (EUR/tCO₂e)",
-          // symmetric-ish range with small headroom
-          range: [-maxAbsMac * 1.15, maxAbsMac * 1.15],
-          tickfont: { size: 11 },
+          range: [-maxAbs * 1.15, maxAbs * 1.15],
+          tickfont: { size: fontSize },
+          titlefont: { size: fontSize },
           showline: true,
           mirror: true,
           zeroline: true,
           gridcolor: "rgba(0,0,0,0.06)"
-        }
+        },
+        bargap: 0,
+        bargroupgap: 0
       };
 
-      const config = { displaylogo: false, responsive: true };
+      // ---- CONFIG (modebar right, tooltips enabled) ----
+      const config = {
+        displaylogo: false,
+        displayModeBar: true,
+        responsive: true,
+        staticPlot: false,
+        modeBarButtonsToRemove: []
+      };
 
       if (this._plotted) {
         Plotly.react(this._container, [barTrace], layout, config);
