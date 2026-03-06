@@ -5,9 +5,10 @@
         <style>
             :host { display:block; width:100%; height:100%; }
             #frame {
-                width:100%; 
-                height:100%; 
+                width:100%;
+                height:100%;
                 border:0;
+                overflow:hidden;
             }
         </style>
         <iframe id="frame"></iframe>
@@ -16,14 +17,13 @@
     class VariableWidthMACC extends HTMLElement {
         constructor() {
             super();
-
             this._shadow = this.attachShadow({ mode:"open" });
             this._shadow.appendChild(template.content.cloneNode(true));
             this._frame = this._shadow.querySelector("#frame");
-
             this._data = { project:[], abatement:[], mac:[] };
         }
 
+        /* Binding definition for SAC Builder panel */
         getDataBindings() {
             return {
                 maccBinding: {
@@ -46,6 +46,7 @@
                 this._ingest(changedProps.maccBinding);
         }
 
+        /* Convert SAC binding rows into arrays for iframe plot */
         _ingest(binding) {
             const rows = binding.data || [];
             const projects = [];
@@ -70,14 +71,15 @@
         _render() {
             const { project, abatement, mac } = this._data;
 
+            /* Build dynamic HTML page for iframe */
             const html = `
 <!DOCTYPE html>
 <html>
 <head>
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
-<body style="margin:0; padding:0; font-family:sans-serif;">
-    <div id="chart" style="width:100%; height:100%;"></div>
+<body style="margin:0; padding:0; background:white; font-family:sans-serif;">
+    <div id="chart" style="width:100%; height:100%; min-height:420px;"></div>
 
     <script>
         const project = ${JSON.stringify(project)};
@@ -93,14 +95,20 @@
         const x = [];
         const y = [];
         const w = [];
+
         let cum = 0;
 
-        rows.forEach(r=>{
-            const width = Math.max(r.Abate, 1); // minimal width fallback
-            const mid   = cum + width/2;
+        rows.forEach(r => {
+            /* Strong minimum visible width */
+            const MIN_PX = 18;
+            const pxToDom = cum > 0 ? cum / window.innerWidth : 1;
+            const width = Math.max(r.Abate, MIN_PX * pxToDom);
+
+            const mid = cum + width/2;
             x.push(mid);
             y.push(r.MAC);
             w.push(width);
+
             cum += width;
         });
 
@@ -109,9 +117,12 @@
             x:x,
             y:y,
             width:w,
-            marker:{ 
-                color: y.map(v => v < 0 ? "#27ae60" : "#e67e22"),
-                line:{color:"black", width:1}
+            marker:{
+                color: y.map(v => v < 0
+                    ? "rgba(39,174,96,0.95)"     // green
+                    : "rgba(230,126,34,0.95)"    // orange
+                ),
+                line:{ color:"rgba(0,0,0,0.7)", width:1.5 }
             },
             hovertemplate:
                 "<b>%{customdata[0]}</b><br>"+
@@ -122,18 +133,32 @@
         };
 
         const layout = {
-            margin:{t:20,l:60,r:20,b:60},
-            xaxis:{ title:"Total Abatement (tCO2e)" },
-            yaxis:{ title:"MAC (EUR/tCO2e)" },
-            hovermode:"closest"
+            margin:{t:30,l:80,r:20,b:60},
+            hovermode:"closest",
+            xaxis:{
+                title:"Total Abatement (tCO₂e)",
+                range:[-cum*0.03, cum*1.03],  // 3% padding on both sides
+                tickformat:"~s",
+                automargin:true
+            },
+            yaxis:{
+                title:"MAC (EUR/tCO₂e)",
+                automargin:true
+            }
         };
 
-        Plotly.newPlot("chart", [trace], layout, {responsive:true});
+        Plotly.newPlot("chart", [trace], layout, {
+            responsive:true,
+            displaylogo:false,
+            displayModeBar:true,
+            staticPlot:false
+        });
     </script>
 </body>
 </html>
             `;
 
+            /* Render iframe content */
             const blob = new Blob([html], {type:"text/html"});
             this._frame.src = URL.createObjectURL(blob);
         }
