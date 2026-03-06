@@ -5,7 +5,7 @@
     <style>
       :host { display:block; width:100%; height:100%; }
       #macc-container {
-        width:100%; height:90%;
+        width:80%; height:75%;
         position:relative;        /* for absolute children (modebar) */
         pointer-events:auto;      /* allow hover/tips in SAC */
         background:transparent;
