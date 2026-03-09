@@ -27,7 +27,6 @@
       this._onMessage = this._onMessage.bind(this);
     }
 
-    /* SAC data binding */
     getDataBindings() {
       return {
         maccBinding: {
@@ -46,23 +45,26 @@
     onCustomWidgetBeforeUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
     onCustomWidgetAfterUpdate(p) { if(p.maccBinding) this._ingest(p.maccBinding); }
 
-    /* Parse SAC rows */
     _ingest(binding) {
       const rows = binding.data || [];
       const P=[], A=[], M=[];
 
       try {
         const md = binding.metadata;
-        this._dimTechId = md?.dimensions?.[0]?.id || md?.dimensions?.[0]?.key || "dimension";
-      } catch (_) { this._dimTechId = "dimension"; }
+        this._dimTechId =
+          md?.dimensions?.[0]?.id ||
+          md?.dimensions?.[0]?.key ||
+          "dimension";
+      } catch (_) {}
 
       for (const r of rows) {
-        const d   = r.dimension_0 || r.dimensions_0 || r.dimensions?.[0] || {};
-        const lab = d.description ?? d.text ?? d.label ?? d.id ?? "";
-        const ab  = r.measure_abate_0?.raw ?? r.measure_abate_0 ?? r.measures?.[0]?.raw ?? 0;
-        const mc  = r.measure_mac_0?.raw   ?? r.measure_mac_0   ?? r.measures?.[1]?.raw ?? 0;
+        const d = r.dimension_0 || r.dimensions_0 || r.dimensions?.[0] || {};
+        const lbl = d.description ?? d.text ?? d.label ?? d.id ?? "";
 
-        P.push(String(lab));
+        const ab = r.measure_abate_0?.raw ?? r.measure_abate_0 ?? r.measures?.[0]?.raw ?? 0;
+        const mc = r.measure_mac_0?.raw   ?? r.measure_mac_0   ?? r.measures?.[1]?.raw ?? 0;
+
+        P.push(String(lbl));
         A.push(+ab || 0);
         M.push(+mc || 0);
       }
@@ -71,7 +73,6 @@
       this._render();
     }
 
-    /* Linked Analysis messages from iframe */
     _onMessage(evt) {
       const msg = evt.data;
       if (!msg) return;
@@ -83,25 +84,20 @@
 
         if (msg.type === "macc_selection_changed") {
           const labels = msg.payload?.labels || [];
-          if (labels.length === 0) {
-            la.removeFilters();
-            return;
-          }
+          if (labels.length === 0) { la.removeFilters(); return; }
 
-          const selections = labels.map(l => ({ [this._dimTechId]: l }));
+          const selections = labels.map(l => ({ [this._dimTechId]: String(l) }));
           la.setFilters(selections);
         }
 
         if (msg.type === "macc_clear_selection") {
           la.removeFilters();
         }
-
       } catch(e) {
-        console.error("[MACC][LA] error:", e);
+        console.error("[MACC][LA]", e);
       }
     }
 
-    /* Render Plotly inside iframe */
     _render() {
       const { project, abatement, mac } = this._data;
 
@@ -110,10 +106,12 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  https://cdn.plot.ly/plotly-2.27.0.min.js</script>
+
+  <!-- ⭐ REAL SCRIPT TAG (SAC‑SAFE) -->
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 
   <style>
-    html,body { margin:0; padding:0; height:100%; }
+    html,body { margin:0; height:100%; }
     #chart { width:100%; height:100%; min-height:480px; }
   </style>
 </head>
@@ -122,6 +120,19 @@
   <div id="chart"></div>
 
   <script>
+
+    // ⭐ FAILSAFE: If SAC delays or blocks the script, reload Plotly.
+    (function ensurePlotly(){
+      if (window.Plotly && window.Plotly.newPlot) return;
+      setTimeout(() => {
+        if (window.Plotly && window.Plotly.newPlot) return;
+        const s = document.createElement("script");
+        s.src = "https://cdn.plot.ly/plotly-2.27.0.min.js";
+        s.onload = ()=>console.log("[MACC iframe] Fallback Plotly loaded");
+        document.head.appendChild(s);
+      }, 300);
+    })();
+
     const project = ${JSON.stringify(project)};
     const abate   = ${JSON.stringify(abatement)};
     const mac     = ${JSON.stringify(mac)};
@@ -129,114 +140,125 @@
     const selected = new Set();
 
     function draw() {
+      try {
 
-      let rows = project.map((p,i)=>({
-        Project:p,
-        Abate:+abate[i]||0,
-        MAC:+mac[i]||0
-      })).sort((a,b)=>a.MAC-b.MAC);
+        // Build & sort
+        let rows = project.map((p,i)=>({
+          Project:p, Abate:+abate[i]||0, MAC:+mac[i]||0
+        })).sort((a,b)=>a.MAC - b.MAC);
 
-      const total = rows.reduce((s,r)=>s+r.Abate,0);
-      let cum=0;
+        // X positions + min-px width logic
+        const total = rows.reduce((s,r)=>s+r.Abate,0);
+        let cum=0;
+        const x=[], y=[], w=[], cd=[], labels=[];
+        const MIN_PX=18;
+        const pxToDom = (total>0 && window.innerWidth>0) ? total/window.innerWidth : 1;
 
-      const x=[], y=[], w=[], cd=[], labels=[];
-      const MIN_PX = 18;
-      const pxToDom = (total>0 && window.innerWidth>0) ? total/window.innerWidth : 1;
-
-      rows.forEach(r=>{
-        const ww=Math.max(r.Abate,MIN_PX*pxToDom);
-        const mid=cum+ww/2;
-        x.push(mid);
-        y.push(r.MAC);
-        w.push(ww);
-        cd.push([r.Project,r.Abate]);
-        labels.push(r.Project);
-        cum+=ww;
-      });
-
-      const colors = y.map(v =>
-        v<0 ? "rgba(39,174,96,0.95)" :
-        v<25? "rgba(241,196,15,0.95)" :
-        v<50? "rgba(230,126,34,0.95)" :
-               "rgba(231,76,60,0.95)"
-      );
-
-      const lw  = labels.map(L => selected.has(L)?3:1.5);
-      const opc = labels.map(L => selected.size===0?1:(selected.has(L)?1:0.35));
-
-      const bar = {
-        type:"bar",
-        x,y,width:w,
-        marker:{
-          color:colors,
-          line:{color:"rgba(0,0,0,0.85)",width:lw},
-          opacity:opc
-        },
-        customdata:cd,
-        hovertemplate:
-          "<b>%{customdata[0]}</b><br>"+
-          "MAC: %{y}<br>"+
-          "Abatement: %{customdata[1]}<extra></extra>"
-      };
-
-      const xPad = cum*0.03;
-      const xr=[-xPad,cum+xPad];
-      const ymin=Math.min(...y,0)*1.25;
-      const ymax=Math.max(...y,0)*1.25;
-
-      const layout={
-        margin:{t:50,l:80,r:40,b:60},
-        hovermode:"closest",
-        shapes:[
-          {type:"line", x0:60000,x1:60000, y0:ymin,y1:ymax, line:{color:"black",width:3,dash:"dash"}},
-          {type:"line", x0:xr[0],x1:xr[1], y0:50,y1:50, line:{color:"blue",width:3,dash:"dot"}}
-        ],
-        annotations:[
-          {x:60000,y:ymax*0.95,text:"Target: 60k tCO₂e",showarrow:false},
-          {x:xr[1],y:50,text:"Carbon price: 50 EUR/tCO₂e",xanchor:"right",showarrow:false}
-        ],
-        xaxis:{title:"Total Abatement (tCO₂e)",range:xr,tickformat:"~s"},
-        yaxis:{title:"MAC (EUR/tCO₂e)",zeroline:true}
-      };
-
-      const el = document.getElementById("chart");
-
-      Plotly.newPlot(el,[bar],layout,{ responsive:true, displaylogo:false }).then(()=>{
-
-        /* Single / multi select click */
-        el.on("plotly_click",ev=>{
-          const p = ev.points?.[0];
-          if(!p) return;
-
-          const L = p.customdata[0];
-          const multi = ev.event?.ctrlKey || ev.event?.metaKey || ev.event?.shiftKey;
-
-          if(multi){
-            selected.has(L)?selected.delete(L):selected.add(L);
-          } else {
-            selected.clear(); selected.add(L);
-          }
-
-          window.parent.postMessage({
-            type:"macc_selection_changed",
-            payload:{labels:[...selected]}
-          },"*");
-
-          draw();
+        rows.forEach(r=>{
+          const width = Math.max(r.Abate, MIN_PX*pxToDom);
+          const mid   = cum + width/2;
+          x.push(mid);
+          y.push(r.MAC);
+          w.push(width);
+          cd.push([r.Project,r.Abate]);
+          labels.push(r.Project);
+          cum+=width;
         });
 
-        /* Double click —— clear selection */
-        el.on("plotly_doubleclick",()=>{
-          selected.clear();
-          window.parent.postMessage({type:"macc_clear_selection"},"*");
-          draw();
+        // Color bins
+        const colors = y.map(v =>
+          v<0 ? "rgba(39,174,96,0.95)" :
+          v<25? "rgba(241,196,15,0.95)" :
+          v<50? "rgba(230,126,34,0.95)" :
+                 "rgba(231,76,60,0.95)"
+        );
+
+        const lw  = labels.map(L=>selected.has(L)?3:1.5);
+        const opc = labels.map(L=>selected.size===0?1:(selected.has(L)?1:0.35));
+
+        const bar = {
+          type:"bar",
+          x,y,width:w,
+          marker:{
+            color:colors,
+            line:{ color:"rgba(0,0,0,0.85)", width:lw },
+            opacity:opc
+          },
+          customdata:cd,
+          hovertemplate:
+            "<b>%{customdata[0]}</b><br>"+
+            "MAC: %{y}<br>"+
+            "Abatement: %{customdata[1]}<extra></extra>"
+        };
+
+        // Target & carbon lines
+        const xPad = cum*0.03;
+        const xr=[-xPad,cum+xPad];
+        const ymin=Math.min(...y,0)*1.25;
+        const ymax=Math.max(...y,0)*1.25;
+
+        const layout = {
+          margin:{t:50,l:80,r:40,b:60},
+          hovermode:"closest",
+          shapes:[
+            { type:"line", x0:60000,x1:60000, y0:ymin,y1:ymax, line:{color:"black",width:3,dash:"dash"} },
+            { type:"line", x0:xr[0],x1:xr[1], y0:50,y1:50,     line:{color:"blue", width:3,dash:"dot"} }
+          ],
+          annotations:[
+            { x:60000, y:ymax*0.95, text:"Target: 60k tCO₂e", showarrow:false },
+            { x:xr[1], y:50, text:"Carbon price: 50 EUR/tCO₂e", xanchor:"right", showarrow:false }
+          ],
+          xaxis:{ title:"Total Abatement (tCO₂e)", range:xr, tickformat:"~s" },
+          yaxis:{ title:"MAC (EUR/tCO₂e)", zeroline:true }
+        };
+
+        const el=document.getElementById("chart");
+
+        Plotly.newPlot(el,[bar],layout,{responsive:true,displaylogo:false}).then(()=>{
+
+          // Multi-select click
+          el.on("plotly_click", ev=>{
+            const p = ev.points?.[0];
+            if (!p) return;
+
+            const L = p.customdata[0];
+            const multi = ev.event?.ctrlKey || ev.event?.metaKey || ev.event?.shiftKey;
+
+            if(multi){
+              selected.has(L)?selected.delete(L):selected.add(L);
+            } else {
+              selected.clear(); selected.add(L);
+            }
+
+            window.parent.postMessage({
+              type:"macc_selection_changed",
+              payload:{labels:[...selected]}
+            },"*");
+
+            draw();
+          });
+
+          // Clear selection
+          el.on("plotly_doubleclick", ()=>{
+            selected.clear();
+            window.parent.postMessage({type:"macc_clear_selection"},"*");
+            draw();
+          });
+
         });
 
-      });
+      } catch(e){
+        document.getElementById("chart").innerHTML =
+          "<div style='padding:8px;color:red;font:12px Arial'>Error rendering chart</div>";
+        console.error("[MACC iframe]", e);
+      }
     }
 
-    function wait(){ if(window.Plotly) draw(); else setTimeout(wait,30); }
-    wait();
+    // Wait until Plotly is ready
+    (function wait(){
+      if (window.Plotly && window.Plotly.newPlot) draw();
+      else setTimeout(wait, 30);
+    })();
 
     window.addEventListener("resize",()=>{ if(window.Plotly) draw(); });
 
