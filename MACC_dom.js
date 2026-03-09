@@ -73,7 +73,7 @@
 
       this._data = { project: [], abatement: [], mac: [] };
 
-      // Styling defaults (same properties you may expose in Styling.js)
+      // Styling defaults (compatible with Styling.js if you wire it)
       this._style = {
         widthCap: 10,    // % of total
         minWidth: 0.2,   // % of total
@@ -119,7 +119,7 @@
       };
     }
 
-    // ---------- Styling setters (if you wire them in Styling.js) ----------
+    // ---------- Styling setters ----------
     set widthCap(v){  this._style.widthCap  = Number(v)||10;  this._render(); }
     set minWidth(v){  this._style.minWidth  = Number(v)||0.2; this._render(); }
     set xPadding(v){  this._style.xPadding  = Number(v)||5;   this._render(); }
@@ -147,7 +147,7 @@
     }
     _onResizeObs(){ this.onCustomWidgetResize(); }
 
-    // ---------- Ingestion (capture label + member key) ----------
+    // ---------- Ingestion (resolve real dimension id + capture member keys) ----------
     _ingest(binding){
       try {
         const rows = binding?.data || binding?.value || binding?.resultSet || binding?.rows || [];
@@ -157,10 +157,23 @@
           return;
         }
 
-        // Technical dimension id (Selection key)
-        const md = binding.metadata || {};
-        this._dimTechId = md?.dimensions?.[0]?.id || md?.dimensions?.[0]?.key || "dimension";
-        console.log("[MACC DOM] dimTechId =", this._dimTechId);
+        // --- Resolve the technical dimension id for Linked Analysis (robustly)
+        let dimId = "dimension";
+        try {
+          const md = binding?.metadata || {};
+          if (Array.isArray(md.dimensions) && md.dimensions.length) {
+            const d0 = md.dimensions[0];
+            dimId = d0.id || d0.key || d0.name || d0.technicalName || dimId;
+          } else {
+            // Fallback: try from the first row's dimension object
+            const r0 = rows[0] || {};
+            const d0 = r0.dimension_0 || r0.dimensions_0 || (Array.isArray(r0.dimensions) ? r0.dimensions[0] : {}) || {};
+            dimId = d0.dimensionId || d0.id || d0.key || dimId;
+          }
+        } catch(_){ /* ignore */ }
+
+        this._dimTechId = String(dimId);
+        console.log("[MACC DOM] RESOLVED dimTechId =", this._dimTechId);
 
         const proj=[], ab=[], mc=[];
         for (const r of rows) {
@@ -260,7 +273,7 @@
       const lineW = ()=> rows.map(r=>selectedKeys.has(r.Project.key)?3:1.5);
       const opac  = ()=> rows.map(r=>selectedKeys.size===0?1:(selectedKeys.has(r.Project.key)?1:0.35));
 
-      // Trace with hovertemplate composed safely
+      // Trace with hovertemplate composed safely (no literal '<' in source)
       const barTrace = {
         type:"bar",
         x, y, width:w,
@@ -301,8 +314,8 @@
           { type:"line", x0:xRange[0], x1:xRange[1], y0:50, y1:50, line:{color:"blue",  width:3, dash:"dot"} }
         ],
         annotations:[
-          { x:60000,   y:yMax*0.95, text:"Target: 60k tCO₂e", showarrow:false, font:{size:fsize} },
-          { x:xRange[1], y:50,      text:"Carbon price: 50 EUR/tCO₂e", showarrow:false, xanchor:"right", font:{size:fsize} }
+          { x:60000,    y:yMax*0.95, text:"Target: 60k tCO₂e", showarrow:false, font:{size:fsize} },
+          { x:xRange[1],y:50,        text:"Carbon price: 50 EUR/tCO₂e", showarrow:false, xanchor:"right", font:{size:fsize} }
         ]
       };
 
@@ -348,7 +361,7 @@
             const label     = p.customdata?.[0];
 
             if (!memberKey) {
-              console.warn("[MACC DOM][LA] Missing member key for selection; label=", label);
+              console.warn("[MACC DOM][LA] Missing member key; label=", label);
               return;
             }
 
@@ -379,7 +392,7 @@
               const selections = Array.from(selectedKeys).map(k => ({ [this._dimTechId]: String(k) }));
               console.log("[MACC DOM][LA] setFilters(selections) =", selections, "dimTechId =", this._dimTechId);
 
-              la.setFilters(selections);
+              la.setFilters(selections);   // <-- the official API call
             }catch(e){
               console.error("[MACC DOM][LA] setFilters error:", e);
             }
