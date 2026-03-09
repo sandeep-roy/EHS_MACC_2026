@@ -33,7 +33,7 @@
   };
 
   // Build safe hovertemplate fragments
-  const LT = "<";
+  const LT = "";
   const GT = ">";
   const BR = "<br>";
   const EXTRA = "<extra></extra>";
