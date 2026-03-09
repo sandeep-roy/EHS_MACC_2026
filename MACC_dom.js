@@ -1,6 +1,6 @@
 (function () {
 
-  // ---------------- Shadow DOM template without literal <style>/<div> ----------------
+  // ---------------- Shadow DOM template without literal HTML tags ----------------
   const template = document.createElement("template");
   (function buildTemplate(){
     const styleEl = document.createElement("style");
@@ -32,8 +32,8 @@
                  return "rgba(231,76,60,0.95)";
   };
 
-  // Build safe hovertemplate fragments
-  const LT = "";
+  // Hovertemplate safe tokens
+  const LT = "<";
   const GT = ">";
   const BR = "<br>";
   const EXTRA = "<extra></extra>";
@@ -71,8 +71,10 @@
       this._plotted = false;
       this._graphDiv = null;
 
+      // Data arrays
       this._data = { project: [], abatement: [], mac: [] };
 
+      // Styling defaults
       this._style = {
         widthCap: 10,
         minWidth: 0.2,
@@ -81,6 +83,7 @@
         colorMode: "gradient"
       };
 
+      // Dimension technical id
       this._dimTechId = "dimension";
 
       this._onResizeObs = this._onResizeObs.bind(this);
@@ -103,7 +106,7 @@
       try { this._ro.disconnect(); } catch(_){}
     }
 
-    // ---------- Data binding ----------
+    // Data binding
     getDataBindings() {
       return {
         maccBinding: {
@@ -116,14 +119,13 @@
       };
     }
 
-    // ---------- Styling panel setters ----------
+    // Styling setters
     set widthCap(v){  this._style.widthCap  = Number(v)||10;  this._render(); }
     set minWidth(v){  this._style.minWidth  = Number(v)||0.2; this._render(); }
     set xPadding(v){  this._style.xPadding  = Number(v)||5;   this._render(); }
     set fontSize(v){  this._style.fontSize  = Number(v)||12;  this._render(); }
     set colorMode(v){ this._style.colorMode = v||"gradient";  this._render(); }
 
-    // ---------- Update lifecycle ----------
     onCustomWidgetBeforeUpdate(props){ this._applyProps(props); }
     onCustomWidgetAfterUpdate(props){  this._applyProps(props); }
 
@@ -143,7 +145,7 @@
     }
     _onResizeObs(){ this.onCustomWidgetResize(); }
 
-    // ---------- Ingest + store member keys for Linked Analysis ----------
+    // Ingest SAC rows
     _ingest(binding){
       try {
         const rows =
@@ -187,7 +189,7 @@
       }
     }
 
-    // ---------- Rendering ----------
+    // Render empty message
     _setEmpty(msg){
       this._container.innerHTML = "";
       const msgEl = document.createElement("div");
@@ -200,6 +202,7 @@
       this._graphDiv = null;
     }
 
+    // ---------- Render MACC Curve ----------
     _render(){
       if (!this._initialized) return;
 
@@ -329,6 +332,7 @@
         });
 
         if (firstTime && gd && gd.on){
+
           gd.on("plotly_click",(ev)=>{
             const p = ev?.points?.[0]; if (!p) return;
 
@@ -352,27 +356,28 @@
               const db = this.dataBindings.getDataBinding?.();
               const la = db?.getLinkedAnalysis?.();
               if (la && la.isDataPointSelectionEnabled?.()){
-                const selections = Array.from(selectedKeys).map(k=>({[this._dimTechId]:String(k)}));
+                const selections = Array.from(selectedKeys)
+                  .map(k=>({[this._dimTechId]:String(k)}));
                 la.setFilters(selections);
               }
             }catch(e){
-              console.warn("[MACC DOM] LA setFilters error:",e);
+              console.warn("[MACC DOM] LA error:",e);
             }
           });
 
           gd.on("plotly_doubleclick",()=>{
             if (selectedKeys.size===0) return;
             selectedKeys.clear();
+
             Plotly.restyle(gd,{
               "marker.line.width":[rows.map(_=>1.5)],
               "marker.opacity":[rows.map(_=>1)]
             });
+
             try{
               const db = this.dataBindings.getDataBinding?.();
               db?.getLinkedAnalysis?.().removeFilters?.();
-            }catch(e){
-              console.warn("[MACC DOM] LA removeFilters error:",e);
-            }
+            }catch(e){}
           });
 
         } else {
@@ -380,3 +385,15 @@
         }
 
       }).catch((e)=>{
+        console.error("[MACC DOM] plot error:",e);
+        this._setEmpty("Plot error.");
+      });
+
+    }
+  }
+
+  if (!customElements.get("variable-width-macc")) {
+    customElements.define("variable-width-macc", VariableWidthMACC);
+  }
+
+})();
