@@ -9,7 +9,7 @@
       #macc-container {
         width:100%; height:100%; position:relative;
         pointer-events:auto !important;
-        z-index: 0;
+        z-index: 1; /* keep overlay above surrounding story chrome */
       }
       /* Hard-enable pointer events for Plotly interactive layers (hover/tooltips/shapes) */
       #macc-container, #macc-container * { pointer-events:auto !important; }
@@ -36,7 +36,7 @@
                  return "rgba(231,76,60,0.95)";
   };
 
-  // Build safe hovertemplate fragments with character codes (no literal '<' or '>')
+  // Safe hovertemplate fragments (no literal '<' in source)
   const LT = String.fromCharCode(60);   // '<'
   const GT = String.fromCharCode(62);   // '>'
   const BR = LT + "br" + GT;            // <br>
@@ -59,6 +59,33 @@
     });
 
     return window.__maccPlotlyLoading;
+  }
+
+  // --- Resolve the technical dimension id (left-hand key for LA Selection) robustly ---
+  function resolveDimTechId(binding, rows){
+    // Try from metadata first (most reliable)
+    try {
+      const md = binding?.metadata || {};
+      if (Array.isArray(md.dimensions) && md.dimensions.length) {
+        const d0 = md.dimensions[0];
+        const candidates = [
+          d0.id, d0.key, d0.name, d0.technicalName, d0.dimensionId, d0.dimension, d0.qualifiedName
+        ].filter(Boolean);
+        if (candidates.length) return String(candidates[0]);
+      }
+    } catch(_) {}
+
+    // Fallback: some tenants put an explicit 'dimensionId' on row-level dimension object
+    try {
+      const r0 = (rows && rows[0]) || {};
+      const d0 = r0.dimension_0 || r0.dimensions_0 || (Array.isArray(r0.dimensions) ? r0.dimensions[0] : {}) || {};
+      const candidates = [
+        d0.dimensionId, d0.id, d0.key, d0.name, d0.technicalName
+      ].filter(Boolean);
+      if (candidates.length) return String(candidates[0]);
+    } catch(_) {}
+
+    return null; // give up → caller will warn and skip LA
   }
 
   class VariableWidthMACC extends HTMLElement {
@@ -86,7 +113,7 @@
         colorMode: "gradient"
       };
 
-      // Technical dimension id from metadata (used in LA Selection objects)
+      // Technical dimension id from metadata (used in Selection objects)
       this._dimTechId = null;
 
       // Bind + ResizeObserver
@@ -161,26 +188,11 @@
           return;
         }
 
-        // --- Resolve the technical dimension id ONLY from metadata (or explicit 'dimensionId' on a row)
-        let dimId = null;
-        try {
-          const md = binding?.metadata || {};
-          if (Array.isArray(md.dimensions) && md.dimensions.length) {
-            const d0 = md.dimensions[0];
-            dimId = d0.id || d0.key || d0.name || d0.technicalName || null;
-          }
-          if (!dimId) {
-            // Fallback: some tenants expose a 'dimensionId' per row-dimension object
-            const r0 = rows[0] || {};
-            const d0 = r0.dimension_0 || r0.dimensions_0 || (Array.isArray(r0.dimensions) ? r0.dimensions[0] : {}) || {};
-            dimId = d0.dimensionId || null;
-          }
-        } catch(_){ /* ignore */ }
-
-        if (!dimId) {
+        // Resolve technical dimension id
+        this._dimTechId = resolveDimTechId(binding, rows);
+        if (!this._dimTechId) {
           console.warn("[MACC DOM] Unable to resolve dimension id from metadata; Linked Analysis will be skipped.");
         }
-        this._dimTechId = dimId;
         console.log("[MACC DOM] RESOLVED dimTechId =", this._dimTechId,
                     "| metadata.dimensions =", binding?.metadata?.dimensions);
 
@@ -188,10 +200,10 @@
         for (const r of rows) {
           const d = r.dimension_0 || r.dimensions_0 || (Array.isArray(r.dimensions)? r.dimensions[0] : {}) || {};
 
-          // Human label for display
+          // Human label for display/tooltip/annotations
           const label = d.description ?? d.text ?? d.label ?? d.id ?? d.key ?? "";
 
-          // Technical member key / unique name for LA (RIGHT-HAND SIDE of Selection object)
+          // Technical member key / unique name for LA (RIGHT-HAND SIDE of Selection)
           const key   = d.uniqueName ?? d.internalMemberKey ?? d.memberKey ?? d.key ?? d.id ?? label;
 
           const av = r.measure_abate_0?.raw ?? r.measure_abate_0 ?? r.measures?.[0]?.raw ?? 0;
@@ -282,7 +294,7 @@
       const lineW = ()=> rows.map(r=>selectedKeys.has(r.Project.key)?3:1.5);
       const opac  = ()=> rows.map(r=>selectedKeys.size===0?1:(selectedKeys.has(r.Project.key)?1:0.35));
 
-      // Trace with hovertemplate composed safely (no literal '<' in source)
+      // Trace with hovertemplate composed safely
       const barTrace = {
         type:"bar",
         x, y, width:w,
@@ -303,10 +315,12 @@
       const yMin = Math.min(...y, 0) * 1.25;
       const yMax = Math.max(...y, 0) * 1.25;
 
-      // Layout
+      // Layout (add hoverdistance to be generous in View mode)
       const layout = {
         margin:{t:50,l:80,r:40,b:60},
         hovermode:"closest",
+        hoverdistance: 20,
+        spikedistance: -1,
         hoverlabel:{ bgcolor:"white", font:{ size:fsize } },
         xaxis:{
           title:"Total Abatement (tCO₂e)",
@@ -432,6 +446,9 @@
             }
           });
 
+          // Optional: nudge hover to come alive immediately after first render
+          setTimeout(()=>{ try { Plotly.Fx.hover(gd, [{xval:x[0], yval:y[0]}]); Plotly.Fx.unhover(gd); } catch(_){}} , 50);
+
         } else {
           Plotly.react(gd, [barTrace], layout, config);
         }
@@ -450,3 +467,4 @@
   }
 
 })();
+``
