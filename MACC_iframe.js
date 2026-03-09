@@ -27,11 +27,12 @@
       this._onMessage = this._onMessage.bind(this);
     }
 
+    /* SAC data binding */
     getDataBindings() {
       return {
         maccBinding: {
           feeds: [
-            { id:"dimension",     type:"dimension" },
+            { id:"dimension", type:"dimension" },
             { id:"measure_abate", type:"mainStructureMember" },
             { id:"measure_mac",   type:"mainStructureMember" }
           ]
@@ -39,48 +40,38 @@
       };
     }
 
-    connectedCallback() {
-      window.addEventListener("message", this._onMessage);
-    }
+    connectedCallback()   { window.addEventListener("message", this._onMessage); }
+    disconnectedCallback(){ window.removeEventListener("message", this._onMessage); }
 
-    disconnectedCallback() {
-      window.removeEventListener("message", this._onMessage);
-    }
+    onCustomWidgetBeforeUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
+    onCustomWidgetAfterUpdate(p) { if(p.maccBinding) this._ingest(p.maccBinding); }
 
-    onCustomWidgetBeforeUpdate(props) {
-      if (props.maccBinding) this._ingest(props.maccBinding);
-    }
-
-    onCustomWidgetAfterUpdate(props) {
-      if (props.maccBinding) this._ingest(props.maccBinding);
-    }
-
+    /* Parse SAC rows */
     _ingest(binding) {
       const rows = binding.data || [];
-      const p=[], a=[], m=[];
+      const P=[], A=[], M=[];
 
       try {
         const md = binding.metadata;
         this._dimTechId = md?.dimensions?.[0]?.id || md?.dimensions?.[0]?.key || "dimension";
-      } catch (_) {
-        this._dimTechId = "dimension";
-      }
+      } catch (_) { this._dimTechId = "dimension"; }
 
       for (const r of rows) {
-        const d = r.dimension_0 || r.dimensions_0 || r.dimensions?.[0] || {};
-        const label = d.description ?? d.text ?? d.label ?? d.id ?? "";
-        const abv = r.measure_abate_0?.raw ?? r.measure_abate_0 ?? r.measures?.[0]?.raw ?? 0;
-        const macv = r.measure_mac_0?.raw ?? r.measure_mac_0 ?? r.measures?.[1]?.raw ?? 0;
+        const d   = r.dimension_0 || r.dimensions_0 || r.dimensions?.[0] || {};
+        const lab = d.description ?? d.text ?? d.label ?? d.id ?? "";
+        const ab  = r.measure_abate_0?.raw ?? r.measure_abate_0 ?? r.measures?.[0]?.raw ?? 0;
+        const mc  = r.measure_mac_0?.raw   ?? r.measure_mac_0   ?? r.measures?.[1]?.raw ?? 0;
 
-        p.push(String(label));
-        a.push(Number(abv)||0);
-        m.push(Number(macv)||0);
+        P.push(String(lab));
+        A.push(+ab || 0);
+        M.push(+mc || 0);
       }
 
-      this._data = { project:p, abatement:a, mac:m };
+      this._data = { project:P, abatement:A, mac:M };
       this._render();
     }
 
+    /* Linked Analysis messages from iframe */
     _onMessage(evt) {
       const msg = evt.data;
       if (!msg) return;
@@ -88,7 +79,6 @@
       try {
         const db = this.dataBindings.getDataBinding();
         const la = db.getLinkedAnalysis?.();
-
         if (!la) return;
 
         if (msg.type === "macc_selection_changed") {
@@ -97,7 +87,8 @@
             la.removeFilters();
             return;
           }
-          const selections = labels.map(l => ({ [this._dimTechId]: String(l) }));
+
+          const selections = labels.map(l => ({ [this._dimTechId]: l }));
           la.setFilters(selections);
         }
 
@@ -105,11 +96,12 @@
           la.removeFilters();
         }
 
-      } catch (e) {
-        console.error("[MACC] Linked Analysis error:", e);
+      } catch(e) {
+        console.error("[MACC][LA] error:", e);
       }
     }
 
+    /* Render Plotly inside iframe */
     _render() {
       const { project, abatement, mac } = this._data;
 
@@ -118,10 +110,10 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  https://cdn.plot.ly/plotly-2.27.0.min.js</script>
 
   <style>
-    html, body { height:100%; margin:0; }
+    html,body { margin:0; padding:0; height:100%; }
     #chart { width:100%; height:100%; min-height:480px; }
   </style>
 </head>
@@ -137,6 +129,7 @@
     const selected = new Set();
 
     function draw() {
+
       let rows = project.map((p,i)=>({
         Project:p,
         Abate:+abate[i]||0,
@@ -147,7 +140,6 @@
       let cum=0;
 
       const x=[], y=[], w=[], cd=[], labels=[];
-
       const MIN_PX = 18;
       const pxToDom = (total>0 && window.innerWidth>0) ? total/window.innerWidth : 1;
 
@@ -169,16 +161,16 @@
                "rgba(231,76,60,0.95)"
       );
 
-      const lineW = labels.map(l=>selected.has(l)?3:1.5);
-      const opac  = labels.map(l=>selected.size===0?1:(selected.has(l)?1:0.35));
+      const lw  = labels.map(L => selected.has(L)?3:1.5);
+      const opc = labels.map(L => selected.size===0?1:(selected.has(L)?1:0.35));
 
       const bar = {
         type:"bar",
         x,y,width:w,
         marker:{
           color:colors,
-          line:{color:"rgba(0,0,0,0.9)", width:lineW},
-          opacity:opac
+          line:{color:"rgba(0,0,0,0.85)",width:lw},
+          opacity:opc
         },
         customdata:cd,
         hovertemplate:
@@ -207,31 +199,33 @@
         yaxis:{title:"MAC (EUR/tCO₂e)",zeroline:true}
       };
 
-      const el=document.getElementById("chart");
+      const el = document.getElementById("chart");
 
-      Plotly.newPlot(el,[bar],layout,{responsive:true,displaylogo:false}).then(()=>{
+      Plotly.newPlot(el,[bar],layout,{ responsive:true, displaylogo:false }).then(()=>{
 
+        /* Single / multi select click */
         el.on("plotly_click",ev=>{
-          const p=ev.points?.[0];
+          const p = ev.points?.[0];
           if(!p) return;
-          const label=p.customdata[0];
 
+          const L = p.customdata[0];
           const multi = ev.event?.ctrlKey || ev.event?.metaKey || ev.event?.shiftKey;
 
           if(multi){
-            selected.has(label)?selected.delete(label):selected.add(label);
+            selected.has(L)?selected.delete(L):selected.add(L);
           } else {
-            selected.clear(); selected.add(label);
+            selected.clear(); selected.add(L);
           }
-
-          draw();
 
           window.parent.postMessage({
             type:"macc_selection_changed",
-            payload:{ labels:[...selected] }
+            payload:{labels:[...selected]}
           },"*");
+
+          draw();
         });
 
+        /* Double click —— clear selection */
         el.on("plotly_doubleclick",()=>{
           selected.clear();
           window.parent.postMessage({type:"macc_clear_selection"},"*");
@@ -241,14 +235,12 @@
       });
     }
 
-    (function wait(){
-      if(window.Plotly) return draw();
-      setTimeout(wait,30);
-    })();
+    function wait(){ if(window.Plotly) draw(); else setTimeout(wait,30); }
+    wait();
 
     window.addEventListener("resize",()=>{ if(window.Plotly) draw(); });
-  </script>
 
+  </script>
 </body>
 </html>
       `;
