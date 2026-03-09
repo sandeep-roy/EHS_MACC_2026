@@ -9,12 +9,16 @@
       #macc-container {
         width:100%; height:100%; position:relative;
         pointer-events:auto !important;
+        z-index: 0;
       }
+      /* Hard-enable pointer events for Plotly interactive layers (hover/tooltips/shapes) */
+      #macc-container, #macc-container * { pointer-events:auto !important; }
+      #macc-container .hoverlayer,
+      #macc-container .layer-above,
+      #macc-container .draglayer { pointer-events:auto !important; }
+      /* Modebar position */
       #macc-container .modebar {
         right: 6px !important; left: auto !important; top: 6px !important;
-      }
-      #macc-container .hoverlayer {
-        pointer-events:auto !important;
       }
     `;
     const rootEl = document.createElement("div");
@@ -73,7 +77,7 @@
 
       this._data = { project: [], abatement: [], mac: [] };
 
-      // Styling defaults (compatible with Styling.js if you wire it)
+      // Styling defaults
       this._style = {
         widthCap: 10,    // % of total
         minWidth: 0.2,   // % of total
@@ -82,8 +86,8 @@
         colorMode: "gradient"
       };
 
-      // Technical dimension id from binding metadata (used in Selection objects)
-      this._dimTechId = "dimension";
+      // Technical dimension id from metadata (used in LA Selection objects)
+      this._dimTechId = null;
 
       // Bind + ResizeObserver
       this._onResizeObs = this._onResizeObs.bind(this);
@@ -157,23 +161,28 @@
           return;
         }
 
-        // --- Resolve the technical dimension id for Linked Analysis (robustly)
-        let dimId = "dimension";
+        // --- Resolve the technical dimension id ONLY from metadata (or explicit 'dimensionId' on a row)
+        let dimId = null;
         try {
           const md = binding?.metadata || {};
           if (Array.isArray(md.dimensions) && md.dimensions.length) {
             const d0 = md.dimensions[0];
-            dimId = d0.id || d0.key || d0.name || d0.technicalName || dimId;
-          } else {
-            // Fallback: try from the first row's dimension object
+            dimId = d0.id || d0.key || d0.name || d0.technicalName || null;
+          }
+          if (!dimId) {
+            // Fallback: some tenants expose a 'dimensionId' per row-dimension object
             const r0 = rows[0] || {};
             const d0 = r0.dimension_0 || r0.dimensions_0 || (Array.isArray(r0.dimensions) ? r0.dimensions[0] : {}) || {};
-            dimId = d0.dimensionId || d0.id || d0.key || dimId;
+            dimId = d0.dimensionId || null;
           }
         } catch(_){ /* ignore */ }
 
-        this._dimTechId = String(dimId);
-        console.log("[MACC DOM] RESOLVED dimTechId =", this._dimTechId);
+        if (!dimId) {
+          console.warn("[MACC DOM] Unable to resolve dimension id from metadata; Linked Analysis will be skipped.");
+        }
+        this._dimTechId = dimId;
+        console.log("[MACC DOM] RESOLVED dimTechId =", this._dimTechId,
+                    "| metadata.dimensions =", binding?.metadata?.dimensions);
 
         const proj=[], ab=[], mc=[];
         for (const r of rows) {
@@ -182,7 +191,7 @@
           // Human label for display
           const label = d.description ?? d.text ?? d.label ?? d.id ?? d.key ?? "";
 
-          // Technical member key / unique name for LA
+          // Technical member key / unique name for LA (RIGHT-HAND SIDE of Selection object)
           const key   = d.uniqueName ?? d.internalMemberKey ?? d.memberKey ?? d.key ?? d.id ?? label;
 
           const av = r.measure_abate_0?.raw ?? r.measure_abate_0 ?? r.measures?.[0]?.raw ?? 0;
@@ -349,7 +358,7 @@
         this._graphDiv = gd;
         this._plotted = true;
 
-        // Final layout pass
+        // Final layout pass (stabilize overlays / hover in View mode)
         requestAnimationFrame(()=>{ try { Plotly.Plots.resize(gd); } catch(_){}});
 
         if (firstTime && gd && gd.on){
@@ -382,17 +391,24 @@
               const db = this.dataBindings.getDataBinding?.();
               const la = db?.getLinkedAnalysis?.();
               const enabled = la?.isDataPointSelectionEnabled?.();
-              console.log("[MACC DOM][LA] isDataPointSelectionEnabled =", enabled);
+              console.log("[MACC DOM][LA] isDataPointSelectionEnabled =", enabled,
+                          "| dimTechId =", this._dimTechId,
+                          "| memberKey(s) =", Array.from(selectedKeys));
 
               if (!enabled) {
                 console.warn("[MACC DOM][LA] 'Filter on data point selection' is OFF in Linked Analysis dialog.");
                 return;
               }
+              if (!this._dimTechId) {
+                console.warn("[MACC DOM][LA] dimTechId unresolved; aborting LA call.");
+                return;
+              }
 
+              // Selection[]: LEFT = technical dimension id, RIGHT = member unique name / key
               const selections = Array.from(selectedKeys).map(k => ({ [this._dimTechId]: String(k) }));
-              console.log("[MACC DOM][LA] setFilters(selections) =", selections, "dimTechId =", this._dimTechId);
+              console.log("[MACC DOM][LA] setFilters(selections) =", selections);
 
-              la.setFilters(selections);   // <-- the official API call
+              la.setFilters(selections);   // <-- official API call
             }catch(e){
               console.error("[MACC DOM][LA] setFilters error:", e);
             }
