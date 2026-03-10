@@ -192,8 +192,8 @@
         }
 
         // Detect technical dimension id
-        this._dimTechId = detectDimensionId(binding, rows);
-        console.log("[MACC v1.4.5] dimTechId =", this._dimTechId);
+        this._dimTechId = "Project name"; // hardcoded final fix
+        console.log("[MACC v1.4.6] dimTechId =", this._dimTechId);
 
         // Extract your fields
         const proj=[], ab=[], mc=[];
