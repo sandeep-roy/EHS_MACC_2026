@@ -162,6 +162,7 @@
 
         for (const r of rows) {
           const d = r.dimension_0 || r;
+          console.log("ROW RAW DEBUG:", JSON.stringify(r, null, 2));
 
           // 🔥 Correct member key extraction
           const projectName = d.id || d.label;
