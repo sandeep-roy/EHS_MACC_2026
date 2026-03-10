@@ -36,7 +36,6 @@
     template.content.appendChild(root);
   })();
 
-  // ---------- Helpers ----------
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const macColor = (v) => {
     if (v < 0) return "rgba(39,174,96,0.95)";
@@ -45,8 +44,7 @@
     return "rgba(231,76,60,0.95)";
   };
 
-  const LT = String.fromCharCode(60);
-  const GT = String.fromCharCode(62);
+  const LT = "<", GT = ">";
   const BR = LT + "br" + GT;
   const EXTRA = LT + "extra" + GT + LT + "/extra" + GT;
 
@@ -56,35 +54,16 @@
     if (window.__maccPlotlyLoading) return window.__maccPlotlyLoading;
 
     window.__maccPlotlyLoading = new Promise((resolve, reject) => {
-      try {
-        const s = document.createElement("script");
-        s.src = "https://cdn.plot.ly/plotly-2.27.0.min.js";
-        s.async = true;
-        s.onload = () => resolve();
-        s.onerror = (e) => reject(e);
-        document.head.appendChild(s);
-      } catch (e) { reject(e); }
+      const s = document.createElement("script");
+      s.src = "https://cdn.plot.ly/plotly-2.27.0.min.js";
+      s.async = true;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
     });
+
     return window.__maccPlotlyLoading;
   }
-
-  // --- Dimension auto detector ---
-  function detectDimensionId(binding, rows) {
-    try {
-      const md = binding?.metadata?.dimensions;
-      if (Array.isArray(md) && md[0]?.id) return String(md[0].id);
-    } catch (_) {}
-
-    try {
-      const d0 = rows?.[0]?.dimension_0 || rows?.[0];
-      const cand = d0?.dimensionId || d0?.id;
-      if (cand) return String(cand);
-    } catch (_) {}
-
-    return "Project_ID"; // last fallback
-  }
-
-  // -----------------------------------------------------------
 
   class VariableWidthMACC extends HTMLElement {
 
@@ -110,10 +89,11 @@
         fontSize: 12
       };
 
-      this._dimTechId = null;
+      // FINAL — LA uses Project_name
+      this._dimTechId = "Project_name";
 
       this._onResizeObs = this._onResizeObs.bind(this);
-      this._ro = new (window.ResizeObserver || class { observe(){} disconnect(){} })(this._onResizeObs);
+      this._ro = new (window.ResizeObserver || class { observe() {} disconnect() {} })(this._onResizeObs);
 
       ensurePlotly().then(() => {
         this._initialized = true;
@@ -125,6 +105,7 @@
     connectedCallback() {
       if (this._initialized) this._ro.observe(this._container);
     }
+
     disconnectedCallback() {
       this._ro.disconnect();
     }
@@ -147,7 +128,7 @@
     _apply(props) {
       if (!props) return;
 
-      this._props = props;  // Important for LA!
+      this._props = props;  // needed for LA
 
       if ("maccBinding" in props) this._ingest(props.maccBinding);
 
@@ -163,28 +144,25 @@
 
     onCustomWidgetResize() {
       if (this._initialized && this._plotted) {
-        try { Plotly.Plots.resize(this._graph); } catch (_) {}
+        Plotly.Plots.resize(this._graph);
       }
     }
+
     _onResizeObs() { this.onCustomWidgetResize(); }
 
     // ---------------- INGEST ------------------
     _ingest(binding) {
       try {
-        const rows = binding?.data || binding?.rows || [];
+        const rows = binding?.data || [];
         if (!rows.length) return this._setEmpty("No data");
-
-        this._dimTechId = detectDimensionId(binding, rows);
-        console.log("Detected dimension ID:", this._dimTechId);
 
         const proj = [], ab = [], mc = [];
 
         for (const r of rows) {
           const d = r.dimension_0 || r;
 
-          const projectId = d.Project_ID;
-          const projectName = d.Project_name ?? projectId;
-          const key = String(projectId); // KEY FOR LA
+          const projectName = d.Project_name; // FINAL — dimension
+          const key = String(projectName);    // LA uses this exact value
 
           const av = r.measure_abate_0?.raw ?? r.measure_abate_0 ?? 0;
           const mv = r.measure_mac_0?.raw ?? r.measure_mac_0 ?? 0;
@@ -220,12 +198,11 @@
       if (!this._initialized) return;
 
       const P = this._data.project,
-            A = this._data.abatement,
-            M = this._data.mac;
+        A = this._data.abatement,
+        M = this._data.mac;
 
       if (!P.length) return this._setEmpty("No data");
 
-      // Build rows
       let rows = P.map((p, i) => ({
         Project: p,
         Abate: A[i],
@@ -273,10 +250,7 @@
       const barTrace = {
         type: "bar",
         x, y, width: w,
-        marker: {
-          color: colors,
-          line: { color: "rgba(0,0,0,0.9)", width: 1.5 }
-        },
+        marker: { color: colors, line: { color: "rgba(0,0,0,0.9)", width: 1.5 }},
         customdata: rows.map(r => [r.Project.label, r.Abate, r.Project.key]),
         hovertemplate:
           "Project: %{customdata[0]}" + BR +
@@ -284,7 +258,7 @@
           "Abatement: %{customdata[1]:,.0f} tCO₂e" + EXTRA
       };
 
-      const xRange = [-1000, c + 1000];
+      const xRange = [-500, c + 500];
       const yMin = Math.min(...y, 0) * 1.25;
       const yMax = Math.max(...y, 0) * 1.25;
 
@@ -295,7 +269,7 @@
         yaxis: { range: [yMin, yMax], title: "MAC (EUR/tCO₂e)" }
       };
 
-      Plotly.newPlot(this._container, [barTrace], layout, {responsive: true})
+      Plotly.newPlot(this._container, [barTrace], layout, { responsive: true })
         .then(gd => {
 
           this._graph = gd;
@@ -326,16 +300,18 @@
               "marker.opacity": [rows.map(r => selectedKeys.size === 0 ? 1 : (selectedKeys.has(r.Project.key) ? 1 : 0.3))]
             });
 
-            // ----------- LINKED ANALYSIS FIXED -----------
+            // ----------- LINKED ANALYSIS (FINAL) -----------
             try {
               const la = this._props?.maccBinding?.getLinkedAnalysis?.();
               if (!la) return;
 
               if (!la.isDataPointSelectionEnabled?.()) return;
 
-              const sel = [...selectedKeys].map(k => ({ [this._dimTechId]: k }));
-              console.log("LA Filters:", sel);
+              const sel = [...selectedKeys].map(k => ({
+                Project_name: k
+              }));
 
+              console.log("LA Filters:", sel);
               la.setFilters(sel);
             } catch (e) {
               console.error("LA error:", e);
