@@ -177,6 +177,10 @@
         this._data.mac = mc;
 
         this._render();
+        
+        console.log("DIM METADATA:", binding?.metadata);
+        console.log("ROW SAMPLE:", rows[0]);
+
 
       } catch (e) {
         console.error("Ingest error:", e);
