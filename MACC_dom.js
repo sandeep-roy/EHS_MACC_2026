@@ -1,10 +1,12 @@
 (function () {
+  // Variable Width MACC with robust Linked Analysis (Project_ID)
+  // v1.6.1 — 2026-03-10
+  // - Robust technical dimension ID detection (array or object)
+  // - Fallback changed to "Project_ID" to match public dimension
+  // - Member value: uniqueName || id || label
+  // - Defensive LA object resolution + logs
 
-  // ============================================================================
-  //  VARIABLE WIDTH MACC — FINAL VERSION WITH LINKED ANALYSIS + onSelect EVENT
-  //  v1.6.0 — 2026-03-10
-  // ============================================================================
-
+  // ---------------- Build Shadow DOM template ----------------
   const template = document.createElement("template");
   (function buildTemplate() {
     const styleEl = document.createElement("style");
@@ -66,16 +68,28 @@
     return window.__maccPlotlyLoading;
   }
 
-  function detectDimTechId(binding) {
+  // Helper: detect technical dimension id from metadata  // <<< PATCH
+  function detectDimTechId(binding, rows) {
     try {
-      const id = binding?.metadata?.dimensions?.dimension_0?.id;
-      if (id) return String(id);
+      const md = binding?.metadata?.dimensions;
+      // Object shape { dimension_0: { id: ... } }
+      if (md?.dimension_0?.id) return String(md.dimension_0.id);
+      // Array shape [ { id: ... }, ... ]
+      if (Array.isArray(md) && md[0]?.id) return String(md[0].id);
     } catch (_) {}
-    return "Project_ID";  // Fallback for your model
+
+    // Row-based heuristic
+    try {
+      const d0 = rows?.[0]?.dimension_0 || rows?.[0];
+      // Sometimes a row carries a dimensionId or id of the technical member property
+      const guess = d0?.dimensionId || d0?.idProperty || d0?.idKey || d0?.id;
+      if (guess && typeof guess === "string" && guess.length) return guess;
+    } catch (_) {}
+
+    return "Project_ID"; // final fallback aligned to your public dimension
   }
 
   class VariableWidthMACC extends HTMLElement {
-
     constructor() {
       super();
 
@@ -125,13 +139,12 @@
       };
     }
 
-    onCustomWidgetBeforeUpdate(p) { this._apply(p); }
-    onCustomWidgetAfterUpdate(p) { this._apply(p); }
+    onCustomWidgetBeforeUpdate(p){ this._apply(p); }
+    onCustomWidgetAfterUpdate(p){ this._apply(p); }
 
-    _apply(props) {
+    _apply(props){
       if (!props) return;
-
-      this._props = props;
+      this._props = props; // retain for LA
 
       if ("maccBinding" in props) this._ingest(props.maccBinding);
 
@@ -140,43 +153,43 @@
       });
     }
 
-    set widthCap(v) { this._style.widthCap = Number(v)||10; this._render(); }
-    set minWidth(v) { this._style.minWidth = Number(v)||0.2; this._render(); }
-    set xPadding(v) { this._style.xPadding = Number(v)||5; this._render(); }
-    set fontSize(v) { this._style.fontSize = Number(v)||12; this._render(); }
+    set widthCap(v){ this._style.widthCap = Number(v)||10; this._render(); }
+    set minWidth(v){ this._style.minWidth = Number(v)||0.2; this._render(); }
+    set xPadding(v){ this._style.xPadding = Number(v)||5; this._render(); }
+    set fontSize(v){ this._style.fontSize = Number(v)||12; this._render(); }
 
-    onCustomWidgetResize() {
+    onCustomWidgetResize(){
       if (this._initialized && this._plotted) {
-        try { Plotly.Plots.resize(this._graph); }
-        catch (_) {}
+        try { Plotly.Plots.resize(this._graph); } catch(_){}
       }
     }
-    _onResizeObs() { this.onCustomWidgetResize(); }
+    _onResizeObs(){ this.onCustomWidgetResize(); }
 
-    // -----------------------------------------------------------------------
-    // INGEST
-    // -----------------------------------------------------------------------
-    _ingest(binding) {
+    // ------------- INGEST -----------------
+    _ingest(binding){
       try {
         const rows = binding?.data || [];
-        if (!rows.length) return this._setEmpty("No data");
+        if (!Array.isArray(rows) || rows.length === 0) {
+          return this._setEmpty("No data");
+        }
 
-        this._dimTechId = detectDimTechId(binding);
+        // Detect technical dimension id  // <<< PATCH
+        this._dimTechId = detectDimTechId(binding, rows);
         console.log("[MACC] dimTechId:", this._dimTechId);
+        console.log("[MACC] DIM META:", binding?.metadata?.dimensions);
 
         const proj = [], ab = [], mc = [];
 
         for (const r of rows) {
+          const d = r.dimension_0 || r; // SAC row shape
 
-          const d = r.dimension_0 || r;
-
-          // Prefer uniqueName → id → label
+          // Prefer uniqueName (live/BW) -> id -> label
           const memberValue = d.uniqueName || d.id || d.label;
           const projectLabel = d.label || d.id || String(memberValue);
           const key = String(memberValue);
 
           const av = r.measure_abate_0?.raw ?? r.measure_abate_0 ?? 0;
-          const mv = r.measure_mac_0?.raw ?? r.measure_mac_0 ?? 0;
+          const mv = r.measure_mac_0?.raw   ?? r.measure_mac_0   ?? 0;
 
           proj.push({ label: projectLabel, key });
           ab.push(Number(av)||0);
@@ -188,26 +201,24 @@
         this._data.mac = mc;
 
         this._render();
-
       } catch (e) {
         console.error("Ingest error:", e);
         this._setEmpty("Data error");
       }
     }
 
-    // -----------------------------------------------------------------------
-    // RENDER
-    // -----------------------------------------------------------------------
-    _setEmpty(msg) {
+    // ------------- RENDERING -------------
+    _setEmpty(msg){
       this._container.innerHTML = "";
       const el = document.createElement("div");
       el.style = "font:12px Arial;color:#666;padding:8px;";
       el.textContent = msg;
       this._container.appendChild(el);
       this._plotted = false;
+      this._graph = null;
     }
 
-    _render() {
+    _render(){
       if (!this._initialized) return;
 
       const P = this._data.project,
@@ -216,30 +227,27 @@
 
       if (!P.length) return this._setEmpty("No data");
 
+      // Build rows (sorted by MAC)
       let rows = P.map((p,i)=>({ Project:p, Abate:A[i], MAC:M[i] }));
       rows.sort((a,b)=>a.MAC-b.MAC);
 
       const total = rows.reduce((s,r)=>s+r.Abate,0);
       if (total <= 0) return this._setEmpty("No abatement");
 
-      const capPct = clamp(this._style.widthCap,1,50)/100;
-      const minPct = clamp(this._style.minWidth,0.05,5)/100;
+      const capPct = clamp(this._style.widthCap, 1, 50)/100;
+      const minPct = clamp(this._style.minWidth, 0.05, 5)/100;
 
       const capLim = total*capPct;
       const minLim = total*minPct;
 
-      rows = rows.map(r=>({ ...r, AbateShown: clamp(r.Abate,minLim,capLim) }));
+      rows = rows.map(r=>({ ...r, AbateShown: clamp(r.Abate, minLim, capLim) }));
 
       const W = this._container.clientWidth || 1;
       const pxToDom = total / W;
-
       rows = rows.map(r=>({ ...r, AbateShown: Math.max(r.AbateShown, 20*pxToDom) }));
 
-      let c=0;
-      rows = rows.map(r=>{
-        const xs=c, xe=c+r.AbateShown; c=xe;
-        return { ...r, x_mid:(xs+xe)/2 };
-      });
+      let c = 0;
+      rows = rows.map(r=>{ const xs=c, xe=c+r.AbateShown; c=xe; return { ...r, x_mid:(xs+xe)/2 }; });
 
       const x = rows.map(r=>r.x_mid);
       const y = rows.map(r=>r.MAC);
@@ -257,111 +265,81 @@
           "Abatement: %{customdata[1]:,.0f} tCO₂e"+EXTRA
       };
 
-      const xRange = [-500, c+500];
-      const yMin = Math.min(...y,0)*1.25;
-      const yMax = Math.max(...y,0)*1.25;
+      const xRange = [-500, c + 500];
+      const yMin = Math.min(...y, 0) * 1.25;
+      const yMax = Math.max(...y, 0) * 1.25;
 
       const layout = {
-        margin: { t:50,l:80,r:40,b:60 },
+        margin: { t: 50, l: 80, r: 40, b: 60 },
         hovermode: "closest",
-        xaxis: { range:xRange, title:"Total Abatement (tCO₂e)" },
-        yaxis: { range:[yMin,yMax], title:"MAC (EUR/tCO₂e)" }
+        xaxis: { range: xRange, title: "Total Abatement (tCO₂e)" },
+        yaxis: { range: [yMin, yMax], title: "MAC (EUR/tCO₂e)" }
       };
 
-      Plotly.newPlot(this._container, [barTrace], layout, { responsive:true })
+      Plotly.newPlot(this._container, [barTrace], layout, { responsive: true })
         .then(gd => {
-
           this._graph = gd;
           this._plotted = true;
 
           const selectedKeys = new Set();
 
+          // LA resolver across tenants/builds
           const getLA = () => {
-            try { const laX = this._props?.maccBinding?.getLinkedAnalysis?.(); if (laX) return laX; } catch(_) {}
-            try { const laY = this.dataBindings?.getDataBinding?.()?.getLinkedAnalysis?.(); if (laY) return laY; } catch(_) {}
+            try { const la1 = this._props?.maccBinding?.getLinkedAnalysis?.(); if (la1) return la1; } catch(_){}
+            try { const la2 = this.dataBindings?.getDataBinding?.()?.getLinkedAnalysis?.(); if (la2) return la2; } catch(_){}
             return null;
           };
 
           const buildSelections = (keys) => {
-            const dimId = this._dimTechId || "Project_ID";
+            const dimId = this._dimTechId || "Project_ID"; // <<< PATCH
             return [...keys].map(k => ({ [dimId]: k }));
           };
 
-          gd.on("plotly_click", ev => {
-
-            const p = ev?.points?.[0];
-            if (!p) return;
-
+          gd.on("plotly_click", (ev)=>{
+            const p = ev?.points?.[0]; if (!p) return;
             const key = p.customdata?.[2];
-            if (!key) return;
+            if (key == null) { console.warn("[LA] No key on clicked bar; abort."); return; }
 
-            const multi = ev.event?.ctrlKey || ev.event?.metaKey || ev.event?.shiftKey;
-
+            const multi = !!(ev.event?.ctrlKey || ev.event?.metaKey || ev.event?.shiftKey);
             if (multi) { if (selectedKeys.has(key)) selectedKeys.delete(key); else selectedKeys.add(key); }
             else { selectedKeys.clear(); selectedKeys.add(key); }
 
-            Plotly.restyle(gd,{
-              "marker.line.width":[rows.map(r=>selectedKeys.has(r.Project.key)?3:1.5)],
-              "marker.opacity":[rows.map(r=>selectedKeys.size===0?1:(selectedKeys.has(r.Project.key)?1:0.3))]
+            Plotly.restyle(gd, {
+              "marker.line.width": [rows.map(r => selectedKeys.has(r.Project.key) ? 3 : 1.5)],
+              "marker.opacity": [rows.map(r => selectedKeys.size === 0 ? 1 : (selectedKeys.has(r.Project.key) ? 1 : 0.30))]
             });
 
-            // ---------------------
-            // LINKED ANALYSIS
-            // ---------------------
             try {
               const la = getLA();
-              if (la && la.isDataPointSelectionEnabled?.()) {
+              console.log("[LA] object:", !!la, la);
+              if (!la) return;
 
-                const selections = buildSelections(selectedKeys);
+              const enabled = la.isDataPointSelectionEnabled?.();
+              console.log("[LA] isDataPointSelectionEnabled:", enabled);
+              if (!enabled) return;
 
-                la.setFilters(selections);
-              }
-            } catch (e) {
-              console.error("[LA] error:", e);
-            }
+              const selections = buildSelections(selectedKeys);
+              console.log("[LA] dimId:", this._dimTechId, " selections:", selections);
 
-            // ---------------------
-            // FIRE CUSTOM EVENT
-            // ---------------------
-            try {
-              const payload = {
-                projectId: key,
-                projectLabel: p.customdata?.[0],
-                abatement: p.customdata?.[1],
-                mac: p.y,
-                uniqueKey: key
-              };
+              const bad = selections.some(s => {
+                const k = Object.keys(s)[0];
+                const v = s[k];
+                return !k || v === undefined || v === null || String(v).trim() === "";
+              });
+              if (bad) { console.warn("[LA] Aborting setFilters due to invalid selections:", selections); return; }
 
-              const ce = new CustomEvent("onSelect", { detail: payload });
-              this.dispatchEvent(ce);
-
-              console.log("[MACC] Fired onSelect:", payload);
-
-            } catch (e) {
-              console.error("[MACC] Event error:", e);
-            }
-
+              la.setFilters(selections);
+            } catch (e) { console.error("[LA] setFilters error:", e); }
           });
 
-          gd.on("plotly_doubleclick", () => {
-
+          gd.on("plotly_doubleclick", ()=>{
             selectedKeys.clear();
-
-            Plotly.restyle(gd,{
-              "marker.line.width":[rows.map(()=>1.5)],
-              "marker.opacity":[rows.map(()=>1)]
-            });
-
-            try {
-              const la = getLA();
-              la?.removeFilters?.();
-            } catch (_) {}
-
+            Plotly.restyle(gd, { "marker.line.width": [rows.map(()=>1.5)], "marker.opacity": [rows.map(()=>1)] });
+            try { const la = getLA(); la?.removeFilters?.(); console.log("[LA] removeFilters called."); } catch(e){ console.error("[LA] removeFilters error:", e); }
           });
-
         })
-        .catch(err => {
-          console.error("Plot error:", err);
+        .catch(e=>{
+          console.error("Plot error:", e);
           this._setEmpty("Plot error");
         });
     }
