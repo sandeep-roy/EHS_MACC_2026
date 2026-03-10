@@ -123,7 +123,7 @@
       };
 
       // The SAC technical dimension id (auto-detected)
-      this._dimTechId = null;
+      this._dimTechId = "Project name";
 
       // ResizeObserver
       this._onResizeObs = this._onResizeObs.bind(this);
@@ -204,8 +204,8 @@
           const projectId   = d.Project_ID;
           const projectName = d.Project_name ?? projectId;
 
-          // Member key = PROJECT_ID (critical for LA)
-          const key = String(projectId);
+          // Member key = PROJECT NAME (critical for LA)
+          const key = String(projectName);
 
           const av = r.measure_abate_0?.raw ?? r.measure_abate_0 ?? r.measures?.[0]?.raw ?? 0;
           const mv = r.measure_mac_0?.raw   ?? r.measure_mac_0   ?? r.measures?.[1]?.raw ?? 0;
