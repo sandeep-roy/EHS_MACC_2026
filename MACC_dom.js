@@ -82,6 +82,7 @@
 
       this._data = { project: [], abatement: [], mac: [] };
 
+      // Styling and options
       this._style = {
         widthCap: 10,
         minWidth: 0.2,
@@ -89,7 +90,7 @@
         fontSize: 12
       };
 
-      // FINAL — LA uses Project_name
+      // 🔥 FINAL: Technical dimension ID from your metadata
       this._dimTechId = "Project_name";
 
       this._onResizeObs = this._onResizeObs.bind(this);
@@ -128,7 +129,7 @@
     _apply(props) {
       if (!props) return;
 
-      this._props = props;  // needed for LA
+      this._props = props;  // Required for LA
 
       if ("maccBinding" in props) this._ingest(props.maccBinding);
 
@@ -156,13 +157,15 @@
         const rows = binding?.data || [];
         if (!rows.length) return this._setEmpty("No data");
 
+        // The Project_name dimension is inside dimension_0.id
         const proj = [], ab = [], mc = [];
 
         for (const r of rows) {
           const d = r.dimension_0 || r;
 
-          const projectName = d.Project_name; // FINAL — dimension
-          const key = String(projectName);    // LA uses this exact value
+          // 🔥 Correct member key extraction
+          const projectName = d.id || d.label;
+          const key = String(projectName);
 
           const av = r.measure_abate_0?.raw ?? r.measure_abate_0 ?? 0;
           const mv = r.measure_mac_0?.raw ?? r.measure_mac_0 ?? 0;
@@ -177,10 +180,6 @@
         this._data.mac = mc;
 
         this._render();
-        
-        console.log("DIM METADATA:", binding?.metadata);
-        console.log("ROW SAMPLE:", rows[0]);
-
 
       } catch (e) {
         console.error("Ingest error:", e);
@@ -304,7 +303,7 @@
               "marker.opacity": [rows.map(r => selectedKeys.size === 0 ? 1 : (selectedKeys.has(r.Project.key) ? 1 : 0.3))]
             });
 
-            // ----------- LINKED ANALYSIS (FINAL) -----------
+            // ----------- LINKED ANALYSIS — FINAL & CORRECT -----------
             try {
               const la = this._props?.maccBinding?.getLinkedAnalysis?.();
               if (!la) return;
@@ -312,10 +311,11 @@
               if (!la.isDataPointSelectionEnabled?.()) return;
 
               const sel = [...selectedKeys].map(k => ({
-                Project_name: k
+                [this._dimTechId]: k       // Project_name: <value>
               }));
 
               console.log("LA Filters:", sel);
+
               la.setFilters(sel);
             } catch (e) {
               console.error("LA error:", e);
