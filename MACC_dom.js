@@ -1,4 +1,11 @@
+
 (function () {
+  // Variable Width MACC with robust Linked Analysis (Project_name)
+  // v1.5.0 — 2026-03-10
+  // - Detect technical dimension id from metadata (falls back to "Project_name")
+  // - Extract member value from dimension_0: uniqueName || id || label
+  // - Robust LA resolver (props binding first, then framework fallback)
+  // - Defensive selection validation & detailed console logs
 
   // ---------------- Build Shadow DOM template ----------------
   const template = document.createElement("template");
@@ -18,9 +25,7 @@
       #macc-container, #macc-container * { pointer-events:auto !important; }
       #macc-container .hoverlayer,
       #macc-container .layer-above,
-      #macc-container .draglayer {
-        pointer-events:auto !important;
-      }
+      #macc-container .draglayer { pointer-events:auto !important; }
 
       #macc-container .modebar {
         right:6px !important;
@@ -61,12 +66,19 @@
       s.onerror = reject;
       document.head.appendChild(s);
     });
-
     return window.__maccPlotlyLoading;
   }
 
-  class VariableWidthMACC extends HTMLElement {
+  // Helper: detect technical dimension id from metadata
+  function detectDimTechId(binding) {
+    try {
+      const id = binding?.metadata?.dimensions?.dimension_0?.id;
+      if (id) return String(id);
+    } catch(_) {}
+    return "Project_name"; // fallback for your model
+  }
 
+  class VariableWidthMACC extends HTMLElement {
     constructor() {
       super();
 
@@ -82,7 +94,6 @@
 
       this._data = { project: [], abatement: [], mac: [] };
 
-      // Styling and options
       this._style = {
         widthCap: 10,
         minWidth: 0.2,
@@ -90,11 +101,11 @@
         fontSize: 12
       };
 
-      // 🔥 FINAL: Technical dimension ID from your metadata
-      this._dimTechId = "Project_name";
+      // Set by metadata during ingest
+      this._dimTechId = null;
 
       this._onResizeObs = this._onResizeObs.bind(this);
-      this._ro = new (window.ResizeObserver || class { observe() {} disconnect() {} })(this._onResizeObs);
+      this._ro = new (window.ResizeObserver || class { observe(){} disconnect(){} })(this._onResizeObs);
 
       ensurePlotly().then(() => {
         this._initialized = true;
@@ -103,13 +114,8 @@
       });
     }
 
-    connectedCallback() {
-      if (this._initialized) this._ro.observe(this._container);
-    }
-
-    disconnectedCallback() {
-      this._ro.disconnect();
-    }
+    connectedCallback() { if (this._initialized) this._ro.observe(this._container); }
+    disconnectedCallback() { try { this._ro.disconnect(); } catch(_){} }
 
     getDataBindings() {
       return {
@@ -123,57 +129,63 @@
       };
     }
 
-    onCustomWidgetBeforeUpdate(p) { this._apply(p); }
-    onCustomWidgetAfterUpdate(p) { this._apply(p); }
+    onCustomWidgetBeforeUpdate(p){ this._apply(p); }
+    onCustomWidgetAfterUpdate(p){ this._apply(p); }
 
-    _apply(props) {
+    _apply(props){
       if (!props) return;
-
-      this._props = props;  // Required for LA
+      this._props = props; // retain for LA
 
       if ("maccBinding" in props) this._ingest(props.maccBinding);
 
-      ["widthCap", "minWidth", "xPadding", "fontSize"].forEach(k => {
+      ["widthCap","minWidth","xPadding","fontSize"].forEach(k=>{
         if (k in props) this[k] = props[k];
       });
     }
 
-    set widthCap(v) { this._style.widthCap = Number(v) || 10; this._render(); }
-    set minWidth(v) { this._style.minWidth = Number(v) || 0.2; this._render(); }
-    set xPadding(v) { this._style.xPadding = Number(v) || 5; this._render(); }
-    set fontSize(v) { this._style.fontSize = Number(v) || 12; this._render(); }
+    set widthCap(v){ this._style.widthCap = Number(v)||10; this._render(); }
+    set minWidth(v){ this._style.minWidth = Number(v)||0.2; this._render(); }
+    set xPadding(v){ this._style.xPadding = Number(v)||5; this._render(); }
+    set fontSize(v){ this._style.fontSize = Number(v)||12; this._render(); }
 
-    onCustomWidgetResize() {
+    onCustomWidgetResize(){
       if (this._initialized && this._plotted) {
-        Plotly.Plots.resize(this._graph);
+        try { Plotly.Plots.resize(this._graph); } catch(_){}
       }
     }
+    _onResizeObs(){ this.onCustomWidgetResize(); }
 
-    _onResizeObs() { this.onCustomWidgetResize(); }
-
-    // ---------------- INGEST ------------------
-    _ingest(binding) {
+    // ------------- INGEST -----------------
+    _ingest(binding){
       try {
         const rows = binding?.data || [];
-        if (!rows.length) return this._setEmpty("No data");
+        if (!Array.isArray(rows) || rows.length === 0) {
+          return this._setEmpty("No data");
+        }
 
-        // The Project_name dimension is inside dimension_0.id
+        // Detect technical dimension id
+        this._dimTechId = detectDimTechId(binding);
+        console.log("[MACC] dimTechId:", this._dimTechId);
+        console.log("[MACC] DIM META:", binding?.metadata?.dimensions);
+
         const proj = [], ab = [], mc = [];
 
         for (const r of rows) {
-          const d = r.dimension_0 || r;
-          console.log("ROW RAW DEBUG:", JSON.stringify(r, null, 2));
+          // Raw row debug (comment out in production if noisy)
+          // console.log("ROW RAW DEBUG:", JSON.stringify(r, null, 2));
 
-          // 🔥 Correct member key extraction
-          const projectName = d.id || d.label;
-          const key = String(projectName);
+          const d = r.dimension_0 || r; // SAC row shape
+          // Prefer uniqueName (live/BW) -> id -> label
+          const memberValue = d.uniqueName || d.id || d.label;
+          const projectLabel = d.label || d.id || String(memberValue);
+          const key = String(memberValue);
 
           const av = r.measure_abate_0?.raw ?? r.measure_abate_0 ?? 0;
-          const mv = r.measure_mac_0?.raw ?? r.measure_mac_0 ?? 0;
+          const mv = r.measure_mac_0?.raw   ?? r.measure_mac_0   ?? 0;
 
-          proj.push({ label: projectName, key });
-          ab.push(Number(av));
-          mc.push(Number(mv));
+          proj.push({ label: projectLabel, key });
+          ab.push(Number(av)||0);
+          mc.push(Number(mv)||0);
         }
 
         this._data.project = proj;
@@ -181,85 +193,69 @@
         this._data.mac = mc;
 
         this._render();
-
       } catch (e) {
         console.error("Ingest error:", e);
         this._setEmpty("Data error");
       }
     }
 
-    // ---------------- RENDERING ------------------
-    _setEmpty(msg) {
+    // ------------- RENDERING -------------
+    _setEmpty(msg){
       this._container.innerHTML = "";
       const el = document.createElement("div");
       el.style = "font:12px Arial;color:#666;padding:8px;";
       el.textContent = msg;
       this._container.appendChild(el);
       this._plotted = false;
+      this._graph = null;
     }
 
-    _render() {
+    _render(){
       if (!this._initialized) return;
 
       const P = this._data.project,
-        A = this._data.abatement,
-        M = this._data.mac;
+            A = this._data.abatement,
+            M = this._data.mac;
 
       if (!P.length) return this._setEmpty("No data");
 
-      let rows = P.map((p, i) => ({
-        Project: p,
-        Abate: A[i],
-        MAC: M[i]
-      }));
+      // Build rows (sorted by MAC)
+      let rows = P.map((p,i)=>({ Project:p, Abate:A[i], MAC:M[i] }));
+      rows.sort((a,b)=>a.MAC-b.MAC);
 
-      rows.sort((a, b) => a.MAC - b.MAC);
-
-      const total = rows.reduce((s, r) => s + r.Abate, 0);
+      const total = rows.reduce((s,r)=>s+r.Abate,0);
       if (total <= 0) return this._setEmpty("No abatement");
 
-      const capPct = clamp(this._style.widthCap, 1, 50) / 100;
-      const minPct = clamp(this._style.minWidth, 0.05, 5) / 100;
-      const padPct = clamp(this._style.xPadding, 0, 20) / 100;
+      const capPct = clamp(this._style.widthCap, 1, 50)/100;
+      const minPct = clamp(this._style.minWidth, 0.05, 5)/100;
+      const padPct = clamp(this._style.xPadding, 0, 20)/100;
 
-      const capLim = total * capPct;
-      const minLim = total * minPct;
+      const capLim = total*capPct;
+      const minLim = total*minPct;
 
-      rows = rows.map(r => ({
-        ...r,
-        AbateShown: clamp(r.Abate, minLim, capLim)
-      }));
+      rows = rows.map(r=>({ ...r, AbateShown: clamp(r.Abate, minLim, capLim) }));
 
       const W = this._container.clientWidth || 1;
       const pxToDom = total / W;
-
-      rows = rows.map(r => ({
-        ...r,
-        AbateShown: Math.max(r.AbateShown, 20 * pxToDom)
-      }));
+      rows = rows.map(r=>({ ...r, AbateShown: Math.max(r.AbateShown, 20*pxToDom) }));
 
       let c = 0;
-      rows = rows.map(r => {
-        const xs = c;
-        const xe = c + r.AbateShown;
-        c = xe;
-        return { ...r, x_mid: (xs + xe) / 2 };
-      });
+      rows = rows.map(r=>{ const xs=c, xe=c+r.AbateShown; c=xe; return { ...r, x_mid:(xs+xe)/2 }; });
 
-      const x = rows.map(r => r.x_mid);
-      const y = rows.map(r => r.MAC);
-      const w = rows.map(r => r.AbateShown);
-      const colors = rows.map(r => macColor(r.MAC));
+      const x = rows.map(r=>r.x_mid);
+      const y = rows.map(r=>r.MAC);
+      const w = rows.map(r=>r.AbateShown);
+      const colors = rows.map(r=>macColor(r.MAC));
 
       const barTrace = {
         type: "bar",
         x, y, width: w,
-        marker: { color: colors, line: { color: "rgba(0,0,0,0.9)", width: 1.5 }},
-        customdata: rows.map(r => [r.Project.label, r.Abate, r.Project.key]),
+        marker: { color: colors, line: { color: "rgba(0,0,0,0.9)", width: 1.5 } },
+        customdata: rows.map(r=>[r.Project.label, r.Abate, r.Project.key]),
         hovertemplate:
-          "Project: %{customdata[0]}" + BR +
-          "MAC: %{y:.2f} EUR/tCO₂e" + BR +
-          "Abatement: %{customdata[1]:,.0f} tCO₂e" + EXTRA
+          "Project: %{customdata[0]}"+BR+
+          "MAC: %{y:.2f} EUR/tCO₂e"+BR+
+          "Abatement: %{customdata[1]:,.0f} tCO₂e"+EXTRA
       };
 
       const xRange = [-500, c + 500];
@@ -275,70 +271,69 @@
 
       Plotly.newPlot(this._container, [barTrace], layout, { responsive: true })
         .then(gd => {
-
           this._graph = gd;
           this._plotted = true;
 
           const selectedKeys = new Set();
 
-          // ---------------- CLICK HANDLER -----------------
-          gd.on("plotly_click", ev => {
-            const p = ev?.points?.[0];
-            if (!p) return;
+          // LA resolver across tenants/builds
+          const getLA = () => {
+            try { const la1 = this._props?.maccBinding?.getLinkedAnalysis?.(); if (la1) return la1; } catch(_){}
+            try { const la2 = this.dataBindings?.getDataBinding?.()?.getLinkedAnalysis?.(); if (la2) return la2; } catch(_){}
+            return null;
+          };
 
+          const buildSelections = (keys) => {
+            const dimId = this._dimTechId || "Project_name"; // final fallback
+            return [...keys].map(k => ({ [dimId]: k }));
+          };
+
+          gd.on("plotly_click", (ev)=>{
+            const p = ev?.points?.[0]; if (!p) return;
             const key = p.customdata?.[2];
-            if (!key) return;
+            if (key == null) { console.warn("[LA] No key on clicked bar; abort."); return; }
 
-            const multi = ev.event?.ctrlKey || ev.event?.metaKey || ev.event?.shiftKey;
-
-            if (multi) {
-              if (selectedKeys.has(key)) selectedKeys.delete(key);
-              else selectedKeys.add(key);
-            } else {
-              selectedKeys.clear();
-              selectedKeys.add(key);
-            }
+            const multi = !!(ev.event?.ctrlKey || ev.event?.metaKey || ev.event?.shiftKey);
+            if (multi) { if (selectedKeys.has(key)) selectedKeys.delete(key); else selectedKeys.add(key); }
+            else { selectedKeys.clear(); selectedKeys.add(key); }
 
             Plotly.restyle(gd, {
               "marker.line.width": [rows.map(r => selectedKeys.has(r.Project.key) ? 3 : 1.5)],
-              "marker.opacity": [rows.map(r => selectedKeys.size === 0 ? 1 : (selectedKeys.has(r.Project.key) ? 1 : 0.3))]
+              "marker.opacity": [rows.map(r => selectedKeys.size === 0 ? 1 : (selectedKeys.has(r.Project.key) ? 1 : 0.30))]
             });
 
-            // ----------- LINKED ANALYSIS — FINAL & CORRECT -----------
             try {
-              const la = this._props?.maccBinding?.getLinkedAnalysis?.();
+              const la = getLA();
+              console.log("[LA] object:", !!la, la);
               if (!la) return;
 
-              if (!la.isDataPointSelectionEnabled?.()) return;
+              const enabled = la.isDataPointSelectionEnabled?.();
+              console.log("[LA] isDataPointSelectionEnabled:", enabled);
+              if (!enabled) return;
 
-              const sel = [...selectedKeys].map(k => ({
-                [this._dimTechId]: k       // Project_name: <value>
-              }));
+              const selections = buildSelections(selectedKeys);
+              console.log("[LA] dimId:", this._dimTechId, " selections:", selections);
 
-              console.log("LA Filters:", sel);
+              const bad = selections.some(s => {
+                const k = Object.keys(s)[0];
+                const v = s[k];
+                return !k || v === undefined || v === null || String(v).trim() === "";
+              });
+              if (bad) { console.warn("[LA] Aborting setFilters due to invalid selections:", selections); return; }
 
-              la.setFilters(sel);
-            } catch (e) {
-              console.error("LA error:", e);
-            }
+              la.setFilters(selections);
+            } catch (e) { console.error("[LA] setFilters error:", e); }
           });
 
-          // ---------------- DOUBLE CLICK: RESET -------------
-          gd.on("plotly_doubleclick", () => {
-
+          gd.on("plotly_doubleclick", ()=>{
             selectedKeys.clear();
-
-            Plotly.restyle(gd, {
-              "marker.line.width": [rows.map(() => 1.5)],
-              "marker.opacity": [rows.map(() => 1)]
-            });
-
-            try {
-              const la = this._props?.maccBinding?.getLinkedAnalysis?.();
-              la?.removeFilters?.();
-            } catch (_) {}
+            Plotly.restyle(gd, { "marker.line.width": [rows.map(()=>1.5)], "marker.opacity": [rows.map(()=>1)] });
+            try { const la = getLA(); la?.removeFilters?.(); console.log("[LA] removeFilters called."); } catch(e){ console.error("[LA] removeFilters error:", e); }
           });
-
+        })
+        .catch(e=>{
+          console.error("Plot error:", e);
+          this._setEmpty("Plot error");
         });
     }
   }
