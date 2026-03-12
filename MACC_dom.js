@@ -282,7 +282,7 @@
         },
 
         customdata: rows.map(r => ([
-          r.Project.label,          // 0 Project name
+         // r.Project.label,          // 0 Project name
           r.Project.key,            // 1 Project ID
           r.Abate,                  // 2 Total abatement
           r.MAC,                    // 3 MAC
