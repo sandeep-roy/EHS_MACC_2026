@@ -1,13 +1,13 @@
 (function () {
 
   // ============================================================================
-  //  VARIABLE WIDTH MACC — v1.7.2
-  //  - Tooltip includes Category, Cumulative abatement, NPV, Capex, Opex
-  //  - Linked Analysis (Project_ID) robust with uniqueName fallback
-  //  - Optional additional feeds (safe if unbound)
+  //  VARIABLE WIDTH MACC — v1.7.4
+  //  - Dynamic tooltip (Category, Cumulative, NPV, Capex, Opex)
+  //  - Robust Linked Analysis (Project_ID)
+  //  - UniqueName fallback for BW/HANA
+  //  - Safe from Plotly hovertemplate caching issues
   // ============================================================================
 
-  // ---------------- Build Shadow DOM template ----------------
   const template = document.createElement("template");
   (function buildTemplate() {
     const styleEl = document.createElement("style");
@@ -33,7 +33,6 @@
         top:6px !important;
       }
     `;
-
     const root = document.createElement("div");
     root.id = "macc-container";
 
@@ -51,7 +50,7 @@
   };
 
   const dimSlot = (r, idx) => r?.[`dimension_${idx}`] || null;
-  const meas    = (r, id) => {
+  const meas = (r, id) => {
     const v = r?.[`${id}_0`];
     return (typeof v === "object" && v !== null ? v.raw : v);
   };
@@ -69,7 +68,7 @@
       if (guess && typeof guess === "string") return guess;
     } catch (_) {}
 
-    return "Project_ID";
+    return "Project_ID"; // final fallback
   }
 
   // Load Plotly
@@ -88,7 +87,6 @@
     return window.__maccPlotlyLoading;
   }
 
-
   class VariableWidthMACC extends HTMLElement {
 
     constructor() {
@@ -103,7 +101,6 @@
       this._graph = null;
 
       this._props = {};
-
       this._data = { project: [], abatement: [], mac: [], extra: [] };
 
       this._style = {
@@ -126,31 +123,29 @@
     }
 
     connectedCallback(){ if (this._initialized) this._ro.observe(this._container); }
-    disconnectedCallback(){ try{ this._ro.disconnect(); }catch(_){} }
+    disconnectedCallback(){ try{ this._ro.disconnect(); } catch(_){} }
 
     getDataBindings(){
       return {
         maccBinding:{
           feeds:[
-            { id:"dimension",        type:"dimension" },
+            { id:"dimension",       type:"dimension" },
+            { id:"dimension_cat",   type:"dimension" },
 
-            // optional fields
-            { id:"dimension_cat",    type:"dimension" },
+            { id:"measure_abate",   type:"mainStructureMember" },
+            { id:"measure_mac",     type:"mainStructureMember" },
 
-            { id:"measure_abate",    type:"mainStructureMember" },
-            { id:"measure_mac",      type:"mainStructureMember" },
-
-            { id:"measure_cum",      type:"mainStructureMember" },
-            { id:"measure_npv",      type:"mainStructureMember" },
-            { id:"measure_capex",    type:"mainStructureMember" },
-            { id:"measure_opex",     type:"mainStructureMember" }
+            { id:"measure_cum",     type:"mainStructureMember" },
+            { id:"measure_npv",     type:"mainStructureMember" },
+            { id:"measure_capex",   type:"mainStructureMember" },
+            { id:"measure_opex",    type:"mainStructureMember" }
           ]
         }
       };
     }
 
     onCustomWidgetBeforeUpdate(p){ this._apply(p); }
-    onCustomWidgetAfterUpdate(p){ this._apply(p); }
+    onCustomWidgetAfterUpdate(p){  this._apply(p); }
 
     _apply(props){
       if(!props) return;
@@ -187,7 +182,7 @@
         const proj=[], ab=[], mc=[], ex=[];
 
         for(const r of rows){
-          const d0 = dimSlot(r,0) || r;     // Project ID dimension
+          const d0 = dimSlot(r,0) || r;
           const dCat = dimSlot(r,1);
 
           const memberValue  = d0?.uniqueName || d0?.id || d0?.label;
@@ -207,6 +202,7 @@
           proj.push({ label:projectLabel, key });
           ab.push(abVal);
           mc.push(macVal);
+
           ex.push({
             cumulative: cum,
             npv, capex, opex, category
@@ -267,44 +263,77 @@
       let c=0;
       rows = rows.map(r=>{ const xs=c, xe=c+r.AbateShown; c=xe; return {...r,x_mid:(xs+xe)/2}; });
 
-      const x = rows.map(r=>r.x_mid);
-      const y = rows.map(r=>r.MAC);
-      const w = rows.map(r=>r.AbateShown);
+      const x=rows.map(r=>r.x_mid);
+      const y=rows.map(r=>r.MAC);
+      const w=rows.map(r=>r.AbateShown);
       const colors = rows.map(r=>macColor(r.MAC));
 
-      // --------------- BAR TRACE WITH EXTENDED TOOLTIP ----------------
+
+      // ---------------- DYNAMIC HOVER TEXT ----------------
+      const hoverText = rows.map((r,i) => {
+        const e = (this._data.extra && this._data.extra[i]) || {};
+        const lines = [];
+
+        lines.push(`<b>${r.Project.label ?? ""}</b>`);
+        lines.push(`Project ID: ${r.Project.key ?? ""}`);
+
+        if (e.category) lines.push(`Category: ${e.category}`);
+
+        lines.push(
+          `MAC: ${
+            isFinite(r.MAC) ? r.MAC.toLocaleString(undefined,{maximumFractionDigits:2}) : "-"
+          } EUR/tCO₂e`
+        );
+
+        lines.push(
+          `Total abatement: ${
+            isFinite(r.Abate) ? Math.round(r.Abate).toLocaleString() : "-"
+          } tCO₂e`
+        );
+
+        if (isFinite(e.cumulative))
+          lines.push(`Cumulative abatement: ${Math.round(e.cumulative).toLocaleString()} tCO₂e`);
+
+        if (isFinite(e.npv))
+          lines.push(`NPV cost: ${Math.round(e.npv).toLocaleString()} EUR`);
+
+        if (isFinite(e.capex))
+          lines.push(`Capex: ${Math.round(e.capex).toLocaleString()} EUR`);
+
+        if (isFinite(e.opex))
+          lines.push(`Opex: ${Math.round(e.opex).toLocaleString()} EUR/yr`);
+
+        return lines.join("<br>");
+      });
+
+
+      // ---------------- BAR TRACE ----------------
       const barTrace = {
         type:"bar",
-        x, y, width:w,
+        x,y,width:w,
         marker:{
           color:colors,
           line:{ color:"rgba(0,0,0,0.9)", width:1.5 }
         },
 
+        // Customdata preserved for Linked Analysis
         customdata: rows.map(r => ([
-         // r.Project.label,          // 0 Project name
-          r.Project.key,            // 1 Project ID
-          r.Abate,                  // 2 Total abatement
-          r.MAC,                    // 3 MAC
-          r.extra.cumulative,       // 4 Cumulative abatement
-          r.extra.npv,              // 5 NPV
-          r.extra.capex,            // 6 Capex
-          r.extra.opex,             // 7 Opex
-          r.extra.category          // 8 Category
+          r.Project.label,     // 0
+          r.Project.key,       // 1
+          r.Abate,             // 2
+          r.MAC,               // 3
+          r.extra.cumulative,  // 4
+          r.extra.npv,         // 5
+          r.extra.capex,       // 6
+          r.extra.opex,        // 7
+          r.extra.category     // 8
         ])),
 
-        hovertemplate:
-          "<b>%{customdata[0]}</b><br>" +
-          "Project ID: %{customdata[1]}<br><br>" +
-          "Category: %{customdata[8]}<br>" +
-          "MAC: %{customdata[3]:,.2f} EUR/tCO₂e<br>" +
-          "Total abatement: %{customdata[2]:,.0f} tCO₂e<br>" +
-          "Cumulative abatement: %{customdata[4]:,.0f} tCO₂e<br>" +
-          "NPV cost: %{customdata[5]:,.0f} EUR<br>" +
-          "Capex: %{customdata[6]:,.0f} EUR<br>" +
-          "Opex: %{customdata[7]:,.0f} EUR/yr<br>" +
-          "<extra></extra>"
+        text: hoverText,
+        hoverinfo: "text",
+        hovertemplate: "%{text}<extra></extra>"
       };
+
 
       const xRange=[-500,c+500],
             yMin=Math.min(...y,0)*1.25,
@@ -357,7 +386,6 @@
               const plain = buildSelections(selectedKeys,this._dimTechId);
               try { la.setFilters(plain); }
               catch(e1){
-                // UniqueName fallback
                 const unSel = [...selectedKeys].map(k=>{
                   const isUN = typeof k==="string" && k.startsWith("[") && k.includes("].&[");
                   const v = isUN ? k : `[${this._dimTechId}].[${this._dimTechId}].&[${k}]`;
@@ -391,3 +419,4 @@
     customElements.define("variable-width-macc", VariableWidthMACC);
 
 })();
+``
