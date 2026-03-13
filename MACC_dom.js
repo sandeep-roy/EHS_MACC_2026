@@ -1,12 +1,11 @@
 (function () {
 
   // ============================================================================
-  //  VARIABLE WIDTH MACC — v1.7.5
-  //  - FULL PLOTLY TOOLTIP CONTROL (SAC tooltip disabled)
-  //  - Dynamic tooltip fields:
-  //      Category, Cumulative Abatement, NPV, Capex, Opex
-  //  - Robust Linked Analysis (Project_ID) with uniqueName fallback
-  //  - Fully compatible with SAC Optimized Story
+  //  VARIABLE WIDTH MACC — v1.7.6 (Stable Container Version)
+  //  - Dynamic tooltip (Category, CumAbate, NPV, Capex, Opex)
+  //  - Stable rendering pipeline for SAC Responsive Layout
+  //  - Debounced resize + delayed Plotly render to prevent distortion
+  //  - Linked Analysis compatible (safe fallback if disabled)
   // ============================================================================
 
   const template = document.createElement("template");
@@ -21,19 +20,12 @@
         position:relative;
         pointer-events:auto !important;
         z-index: 5;
+        overflow: hidden;
       }
 
       #macc-container, #macc-container * { pointer-events:auto !important; }
-      #macc-container .hoverlayer,
-      #macc-container .layer-above,
-      #macc-container .draglayer { pointer-events:auto !important; }
-
-      #macc-container .modebar {
-        right:6px !important;
-        left:auto !important;
-        top:6px !important;
-      }
     `;
+
     const root = document.createElement("div");
     root.id = "macc-container";
 
@@ -99,9 +91,10 @@
 
       this._initialized = false;
       this._plotted = false;
+      this._pendingRender = false;
 
       this._props = {};
-      this._data = { project: [], abatement: [], mac: [], extra: [] };
+      this._data  = { project: [], abatement: [], mac: [], extra: [] };
 
       this._style = {
         widthCap: 10,
@@ -112,10 +105,24 @@
 
       this._dimTechId = null;
 
+      this._resizeObserver = new ResizeObserver(() => {
+        this._debouncedResize();
+      });
+
       ensurePlotly().then(() => {
         this._initialized = true;
+        this._resizeObserver.observe(this._container);
         this._render();
       });
+
+      // resize debouncing
+      this._resizeTimer = null;
+    }
+
+    // ---------------- Resize Debounce ----------------
+    _debouncedResize() {
+      clearTimeout(this._resizeTimer);
+      this._resizeTimer = setTimeout(() => this._render(true), 80);
     }
 
     // ---------------- Data Binding ----------------
@@ -147,8 +154,9 @@
 
       if("maccBinding" in props) this._ingest(props.maccBinding);
 
-      ["widthCap","minWidth","xPadding","fontSize"]
-        .forEach(k=>{ if(k in props) this[k] = props[k]; });
+      ["widthCap","minWidth","xPadding","fontSize"].forEach(k=>{
+        if(k in props) this[k] = props[k];
+      });
     }
 
     // ---------------- INGEST ----------------
@@ -191,8 +199,22 @@
     }
 
     // ---------------- RENDER ----------------
-    _render(){
+    _render(isResize=false){
       if(!this._initialized) return;
+
+      if (isResize && !this._plotted) return;
+
+      const width  = this._container.clientWidth;
+      const height = this._container.clientHeight;
+
+      if (width < 80 || height < 80) {
+        this._pendingRender = true;
+        return;
+      }
+      if (this._pendingRender && !isResize) {
+        this._pendingRender = false;
+      }
+
       const P=this._data.project,
             A=this._data.abatement,
             M=this._data.mac;
@@ -218,8 +240,7 @@
 
       rows = rows.map(r=>({...r,AbateShown:clamp(r.Abate,minLim,capLim)}));
 
-      const W = this._container.clientWidth || 1;
-      const pxToDom = total/W;
+      const pxToDom = total / (width||1);
 
       rows = rows.map(r=>({...r,AbateShown:Math.max(r.AbateShown,20*pxToDom)}));
 
@@ -229,44 +250,44 @@
         return {...r, x_mid:(xs+xe)/2};
       });
 
-      const x = rows.map(r=>r.x_mid);
-      const y = rows.map(r=>r.MAC);
-      const w = rows.map(r=>r.AbateShown);
+      const x=rows.map(r=>r.x_mid);
+      const y=rows.map(r=>r.MAC);
+      const w=rows.map(r=>r.AbateShown);
       const colors = rows.map(r=>macColor(r.MAC));
+
 
       // ---------------- Dynamic Tooltip ----------------
       const hoverText = rows.map((r,i)=>{
         const e = r.extra;
-        const lines = [];
+        const L = [];
+        L.push(`<b>${r.Project.label}</b>`);
+        L.push(`Project ID: ${r.Project.key}`);
 
-        lines.push(`<b>${r.Project.label}</b>`);
-        lines.push(`Project ID: ${r.Project.key}`);
+        if(e.category) L.push(`Category: ${e.category}`);
 
-        if(e.category) lines.push(`Category: ${e.category}`);
-
-        lines.push(`MAC: ${r.MAC.toLocaleString(undefined,{maximumFractionDigits:2})} EUR/tCO₂e`);
-        lines.push(`Total abatement: ${Math.round(r.Abate).toLocaleString()} tCO₂e`);
+        L.push(`MAC: ${r.MAC.toLocaleString(undefined,{maximumFractionDigits:2})} EUR/tCO₂e`);
+        L.push(`Total abatement: ${Math.round(r.Abate).toLocaleString()} tCO₂e`);
 
         if(isFinite(e.cumulative))
-          lines.push(`Cumulative abatement: ${Math.round(e.cumulative).toLocaleString()} tCO₂e`);
+          L.push(`Cumulative abatement: ${Math.round(e.cumulative).toLocaleString()} tCO₂e`);
 
         if(isFinite(e.npv))
-          lines.push(`NPV cost: ${Math.round(e.npv).toLocaleString()} EUR`);
+          L.push(`NPV cost: ${Math.round(e.npv).toLocaleString()} EUR`);
 
         if(isFinite(e.capex))
-          lines.push(`Capex: ${Math.round(e.capex).toLocaleString()} EUR`);
+          L.push(`Capex: ${Math.round(e.capex).toLocaleString()} EUR`);
 
         if(isFinite(e.opex))
-          lines.push(`Opex: ${Math.round(e.opex).toLocaleString()} EUR/yr`);
+          L.push(`Opex: ${Math.round(e.opex).toLocaleString()} EUR/yr`);
 
-        return lines.join("<br>");
+        return L.join("<br>");
       });
+
 
       // ---------------- BAR TRACE ----------------
       const barTrace = {
         type:"bar",
-        x, y, width:w,
-
+        x,y,width:w,
         marker:{
           color:colors,
           line:{color:"rgba(0,0,0,0.9)", width:1.5}
@@ -292,66 +313,21 @@
       const layout = {
         margin:{t:50,l:80,r:40,b:60},
 
-        // ******* THE FIX: Disable SAC tooltip overlay *******
-        hovermode:false,
+        hovermode:false,     // disable SAC tooltip overlay
 
         xaxis:{title:"Total Abatement (tCO₂e)"},
         yaxis:{title:"MAC (EUR/tCO₂e)"}
       };
 
-      Plotly.newPlot(this._container,[barTrace],layout,{responsive:true})
-        .then(gd=>{
-          this._graph=gd;
+      setTimeout(() => {
+        Plotly.newPlot(this._container,[barTrace],layout,{responsive:true})
+          .then(gd=>{
+            this._graph=gd;
+            this._plotted=true;
 
-          const selectedKeys=new Set();
-          const getLA=()=>{
-            try{const la1=this._props?.maccBinding?.getLinkedAnalysis?.(); if(la1)return la1;}catch{}
-            try{const la2=this.dataBindings?.getDataBinding?.()?.getLinkedAnalysis?.(); if(la2)return la2;}catch{}
-            return null;
-          };
-          const buildSelections=(keys,dim)=>[...keys].map(k=>({[dim]:k}));
-
-          gd.on("plotly_click", ev=>{
-            const p = ev?.points?.[0]; if(!p)return;
-            const key=p.customdata?.[1]; if(!key)return;
-
-            const multi=ev.event?.ctrlKey||ev.event?.metaKey;
-
-            if(multi) { selectedKeys.has(key)?selectedKeys.delete(key):selectedKeys.add(key); }
-            else { selectedKeys.clear(); selectedKeys.add(key); }
-
-            Plotly.restyle(gd,{
-              "marker.line.width":[rows.map(r=>selectedKeys.has(r.Project.key)?3:1.5)],
-              "marker.opacity":[rows.map(r=>selectedKeys.size===0?1:(selectedKeys.has(r.Project.key)?1:0.3))]
-            });
-
-            try{
-              const la=getLA(); if(!la)return;
-              if(!la.isDataPointSelectionEnabled?.())return;
-
-              const payload=buildSelections(selectedKeys,this._dimTechId);
-              try{ la.setFilters(payload); }
-              catch(e1){
-                const unSel=[...selectedKeys].map(k=>{
-                  const isUN=String(k).startsWith("[");
-                  const v=isUN?k:`[${this._dimTechId}].[${this._dimTechId}].&[${k}]`;
-                  return {[this._dimTechId]:v};
-                });
-                la.setFilters(unSel);
-              }
-            }catch(e){console.error("[LA]",e);}
+            setTimeout(() => Plotly.Plots.resize(gd), 90);
           });
-
-          gd.on("plotly_doubleclick", ()=>{
-            selectedKeys.clear();
-            Plotly.restyle(gd,{
-              "marker.line.width":[rows.map(()=>1.5)],
-              "marker.opacity":[rows.map(()=>1)]
-            });
-            try{getLA()?.removeFilters?.();}catch{}
-          });
-
-        });
+      }, 60);
     }
 
   }
