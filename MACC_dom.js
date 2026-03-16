@@ -1,29 +1,33 @@
 (function () {
 
   // ============================================================================
-  //  VARIABLE WIDTH MACC — v1.7.7b (HTML Tooltip, SAC‑safe)
-  //  - HTML tooltip (no Plotly or SAC tooltip)
-  //  - hoverlayer suppressed via CSS
-  //  - plotly_hover driven tooltip
-  //  - Stable rendering (deferred + debounced)
-  //  - Linked Analysis turned fully OFF for clean behavior
+  //  VARIABLE WIDTH MACC — v1.7.7c (SAP best-practice)
+  //  - HTML tooltip (Funnel-style), not Plotly bubble
+  //  - Zoom/pan/autosize/double-click stable (rebind each cycle)
+  //  - Plotly toolbar hidden + hoverlayer suppressed (CSS + JS)
+  //  - Mousemove-driven tooltip positioning
+  //  - Debounced + deferred rendering for SAC responsive layout
+  //  - Linked Analysis disabled in this build (safe to re-enable later)
   // ============================================================================
 
+  // ---------- Shadow DOM template ----------
   const template = document.createElement("template");
-
   (function buildTemplate() {
     const styleEl = document.createElement("style");
     styleEl.textContent = `
       :host { display:block; width:100%; height:100%; }
 
+      /* Root container (anchor for tooltip positioning) */
       #macc-root {
         position: relative;
         width: 100%;
         height: 100%;
         overflow: hidden;
         pointer-events: auto !important;
+        z-index: 5;
       }
 
+      /* Plotly render target */
       #macc-plot {
         position: absolute;
         inset: 0;
@@ -31,15 +35,11 @@
         height: 100%;
       }
 
-      /* --------- CRITICAL ---------
-         Force-hide Plotly's native hover bubble
-         so only HTML tooltip is visible.
-      */
-      #macc-plot .hoverlayer {
-        display: none !important;
-      }
+      /* Suppress Plotly's native hover bubble & toolbar always */
+      #macc-plot .hoverlayer { display: none !important; }
+      #macc-plot .modebar    { display: none !important; }
 
-      /* HTML tooltip */
+      /* HTML tooltip panel (our own) */
       #macc-tip {
         position: absolute;
         max-width: 360px;
@@ -54,22 +54,15 @@
         z-index: 9999;
         opacity: 0;
         white-space: normal;
-        transform: translate(-50%, -110%);
+        transform: translate(-50%,-110%); /* above cursor */
         transition: opacity 80ms ease-out;
       }
       #macc-tip.show { opacity: 0.98; }
 
-      #macc-tip .ttl {
-        font-weight: 600;
-        margin-bottom: 6px;
-      }
-      #macc-tip .row {
-        display: flex;
-        align-items: baseline;
-        gap: 6px;
-      }
-      #macc-tip .k { color:#555; min-width: 145px; }
-      #macc-tip .v { color:#111; }
+      #macc-tip .ttl { font-weight: 600; margin-bottom: 6px; }
+      #macc-tip .row { display:flex; align-items:baseline; gap:6px; }
+      #macc-tip .k   { color:#555; min-width:145px; }
+      #macc-tip .v   { color:#111; }
     `;
 
     const root = document.createElement("div");
@@ -78,7 +71,7 @@
     const plot = document.createElement("div");
     plot.id = "macc-plot";
 
-    const tip = document.createElement("div");
+    const tip  = document.createElement("div");
     tip.id = "macc-tip";
 
     root.appendChild(plot);
@@ -88,43 +81,43 @@
     template.content.appendChild(root);
   })();
 
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const macColor = (v) => {
-    if (v < 0) return "rgba(39,174,96,0.95)";
-    if (v < 25) return "rgba(241,196,15,0.95)";
-    if (v < 50) return "rgba(230,126,34,0.95)";
-    return "rgba(231,76,60,0.95)";
-  };
+  // ---------- Utility helpers ----------
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const macColor = (v) => (v<0) ? "rgba(39,174,96,0.95)"
+                    : (v<25) ? "rgba(241,196,15,0.95)"
+                    : (v<50) ? "rgba(230,126,34,0.95)"
+                             : "rgba(231,76,60,0.95)";
 
   const dimSlot = (r, idx) => r?.[`dimension_${idx}`] || null;
-  const meas = (r, id) => {
+  const meas    = (r, id)  => {
     const v = r?.[`${id}_0`];
-    return (typeof v === "object" ? v.raw : v);
+    return (typeof v === "object" && v !== null) ? v.raw : v;
   };
 
-  function detectDimTechId(binding, rows) {
+  function detectDimTechId(binding, rows){
     try {
       const md = binding?.metadata?.dimensions;
       if (md?.dimension_0?.id) return String(md.dimension_0.id);
       if (Array.isArray(md) && md[0]?.id) return String(md[0].id);
-    } catch (_) {}
+    } catch(_) {}
     try {
       const d0 = rows?.[0]?.dimension_0;
       if (d0?.dimensionId) return d0.dimensionId;
-      if (d0?.id)         return d0.id;
-    } catch (_) {}
+      if (d0?.id) return d0.id;
+    } catch(_) {}
     return "Project_ID";
   }
 
+  // ---------- Plotly loader ----------
   function ensurePlotly() {
     if (window.Plotly?.newPlot) return Promise.resolve();
     if (window.__maccPlotlyLoading) return window.__maccPlotlyLoading;
-    window.__maccPlotlyLoading = new Promise((resolve, reject) => {
+    window.__maccPlotlyLoading = new Promise((resolve,reject)=>{
       const s = document.createElement("script");
-      s.src = "https://cdn.plot.ly/plotly-2.27.0.min.js";
+      s.src   = "https://cdn.plot.ly/plotly-2.27.0.min.js";
       s.async = true;
-      s.onload = resolve;
-      s.onerror = reject;
+      s.onload= resolve;
+      s.onerror= reject;
       document.head.appendChild(s);
     });
     return window.__maccPlotlyLoading;
@@ -132,48 +125,63 @@
 
   class VariableWidthMACC extends HTMLElement {
 
-    constructor() {
+    constructor(){
       super();
 
-      this._shadow   = this.attachShadow({ mode: "open" });
+      this._shadow = this.attachShadow({ mode:"open" });
       this._shadow.appendChild(template.content.cloneNode(true));
 
-      this._root     = this._shadow.querySelector("#macc-root");
-      this._plotDiv  = this._shadow.querySelector("#macc-plot");
-      this._tip      = this._shadow.querySelector("#macc-tip");
+      // DOM refs
+      this._root    = this._shadow.querySelector("#macc-root");
+      this._plotDiv = this._shadow.querySelector("#macc-plot");
+      this._tip     = this._shadow.querySelector("#macc-tip");
 
-      // Completely disable LA for this stable version
-      this._supportsLA = false;
+      // Version marker
+      this._version = "v1.7.7c";
+      console.log("%c[MACC] Loaded", "color:green", this._version);
 
+      // State
       this._initialized = false;
       this._plotted     = false;
       this._pendingDraw = false;
 
+      // LA disabled in this build (can be re-enabled later)
+      this._supportsLA  = false;
+
+      // Data & style state
       this._props = {};
-      this._data  = { project: [], abatement: [], mac: [], extra: [] };
-
-      this._style = {
-        widthCap: 10,
-        minWidth: 0.2,
-        xPadding: 5,
-        fontSize: 12
-      };
-
+      this._data  = { project:[], abatement:[], mac:[], extra:[] };
+      this._style = { widthCap:10, minWidth:0.2, xPadding:5, fontSize:12 };
       this._dimTechId = null;
 
+      // Mouse handlers (to avoid duplicates on rebinding)
+      this._onMoveHandler  = null;
+      this._onLeaveHandler = null;
+
+      // Resize debounce
       this._resizeTimer = null;
-      this._ro = new ResizeObserver(() => {
+      this._ro = new ResizeObserver(()=>{
         clearTimeout(this._resizeTimer);
-        this._resizeTimer = setTimeout(() => this._render(true), 100);
+        this._resizeTimer = setTimeout(()=> this._render(true), 100);
       });
 
-      ensurePlotly().then(() => {
+      ensurePlotly().then(()=>{
         this._initialized = true;
         if (this._root.isConnected) this._ro.observe(this._root);
         this._render();
       });
     }
 
+    connectedCallback(){ if (this._initialized) this._ro.observe(this._root); }
+    disconnectedCallback(){
+      try{ this._ro.disconnect(); }catch(_){}
+      try{
+        if (this._onMoveHandler)  this._plotDiv.removeEventListener("mousemove", this._onMoveHandler);
+        if (this._onLeaveHandler) this._plotDiv.removeEventListener("mouseleave", this._onLeaveHandler);
+      }catch(_){}
+    }
+
+    // ---------- Data binding contract ----------
     getDataBindings(){
       return {
         maccBinding:{
@@ -191,8 +199,11 @@
       };
     }
 
+    onCustomWidgetBeforeUpdate(p){ this._apply(p); }
+    onCustomWidgetAfterUpdate(p){  this._apply(p); }
+
     _apply(props){
-      if(!props) return;
+      if (!props) return;
       this._props = props;
 
       if ("maccBinding" in props) this._ingest(props.maccBinding);
@@ -202,37 +213,45 @@
       });
     }
 
-    onCustomWidgetBeforeUpdate(p){ this._apply(p); }
-    onCustomWidgetAfterUpdate(p){  this._apply(p); }
+    set widthCap(v){ this._style.widthCap = Number(v)||10; this._render(); }
+    set minWidth(v){ this._style.minWidth = Number(v)||0.2; this._render(); }
+    set xPadding(v){ this._style.xPadding = Number(v)||5; this._render(); }
+    set fontSize(v){ this._style.fontSize = Number(v)||12; this._render(); }
 
+    // ---------- Ingest ----------
     _ingest(binding){
       try{
         const rows = binding?.data || [];
-        if (!rows.length){ this._plotDiv.innerHTML="No data"; return; }
+        if (!rows.length){
+          this._plotDiv.innerHTML = "No data";
+          this._plotted = false;
+          return;
+        }
 
         this._dimTechId = detectDimTechId(binding, rows);
 
         const proj=[], ab=[], mc=[], ex=[];
-
-        for(const r of rows){
-          const d0   = dimSlot(r,0);
-          const dCat = dimSlot(r,1);
+        for (const r of rows) {
+          const d0   = dimSlot(r,0);  // Project ID dimension
+          const dCat = dimSlot(r,1);  // Category (optional)
 
           const memberValue  = d0?.uniqueName || d0?.id || d0?.label;
-          const projectLabel = d0?.label || d0?.id;
+          const projectLabel = d0?.label || d0?.id || String(memberValue);
           const key          = String(memberValue);
 
-          proj.push({ label:projectLabel, key });
-          ab.push(+meas(r,"measure_abate") || 0);
-          mc.push(+meas(r,"measure_mac")   || 0);
+          const abVal = Number(meas(r,"measure_abate")) || 0;
+          const macVal= Number(meas(r,"measure_mac"))   || 0;
 
-          ex.push({
-            cumulative: meas(r,"measure_cum"),
-            npv:        meas(r,"measure_npv"),
-            capex:      meas(r,"measure_capex"),
-            opex:       meas(r,"measure_opex"),
-            category:   dCat?.label ?? dCat?.id
-          });
+          const cum   = meas(r,"measure_cum");
+          const npv   = meas(r,"measure_npv");
+          const capex = meas(r,"measure_capex");
+          const opex  = meas(r,"measure_opex");
+          const cat   = dCat?.label ?? dCat?.id;
+
+          proj.push({ label:projectLabel, key });
+          ab.push(abVal);
+          mc.push(macVal);
+          ex.push({ cumulative:cum, npv, capex, opex, category:cat });
         }
 
         this._data = { project:proj, abatement:ab, mac:mc, extra:ex };
@@ -243,6 +262,7 @@
       }
     }
 
+    // ---------- HTML tooltip ----------
     _tipHtml(row) {
       const e = row.extra || {};
       const n = (v,d=0)=>(Number.isFinite(+v)?(+v).toLocaleString(undefined,{maximumFractionDigits:d}):"-");
@@ -258,17 +278,62 @@
         ${Number.isFinite(e.opex)       ? `<div class="row"><div class="k">Opex:</div><div class="v">${n(e.opex)} EUR/yr</div></div>` : ""}
       `;
     }
-
-    _tipShow(html, cx, cy) {
+    _tipMove(clientX, clientY){
       const rect = this._root.getBoundingClientRect();
-      this._tip.innerHTML = html;
-      this._tip.style.left = `${cx - rect.left}px`;
-      this._tip.style.top  = `${cy - rect.top}px`;
-      this._tip.classList.add("show");
+      this._tip.style.left = `${clientX - rect.left}px`;
+      this._tip.style.top  = `${clientY - rect.top}px`;
     }
-
     _tipHide(){ this._tip.classList.remove("show"); }
 
+    // ---------- Overlays suppression ----------
+    _suppressPlotlyOverlays() {
+      try {
+        this._plotDiv.querySelectorAll(".hoverlayer,.modebar")
+          .forEach(n => n && (n.style.display = "none"));
+      } catch (_) {}
+    }
+
+    // ---------- (Re)bind hover handlers ----------
+    _bindHoverHandlers(gd, rows) {
+      // prevent duplicates
+      gd.removeAllListeners?.("plotly_hover");
+      gd.removeAllListeners?.("plotly_unhover");
+
+      gd.on("plotly_hover", (ev) => {
+        const p = ev?.points?.[0];
+        if (!p) return;
+        const idx = p.pointIndex;
+        const row = rows[idx];
+        if (!row) return;
+
+        this._tip.innerHTML = this._tipHtml(row);
+        this._tip.classList.add("show");
+
+        if (ev.event?.clientX != null && ev.event?.clientY != null) {
+          this._tipMove(ev.event.clientX, ev.event.clientY);
+        }
+      });
+
+      gd.on("plotly_unhover", () => this._tipHide());
+
+      // Keep tooltip following the pointer (Plotly may not refire 'hover' each pixel)
+      const onMove = (e) => {
+        if (this._tip.classList.contains("show")) {
+          this._tipMove(e.clientX, e.clientY);
+        }
+      };
+      const onLeave = () => this._tipHide();
+
+      // replace previous handlers
+      this._plotDiv.removeEventListener("mousemove", this._onMoveHandler);
+      this._plotDiv.removeEventListener("mouseleave", this._onLeaveHandler);
+      this._onMoveHandler  = onMove;
+      this._onLeaveHandler = onLeave;
+      this._plotDiv.addEventListener("mousemove", this._onMoveHandler, { passive:true });
+      this._plotDiv.addEventListener("mouseleave", this._onLeaveHandler, { passive:true });
+    }
+
+    // ---------- Render ----------
     _render(isResize=false){
       if (!this._initialized) return;
 
@@ -280,8 +345,9 @@
             A=this._data.abatement,
             M=this._data.mac;
 
-      if (!P.length){ this._plotDiv.innerHTML="No data"; return; }
+      if (!P.length){ this._plotDiv.innerHTML="No data"; this._plotted=false; return; }
 
+      // Build rows & sort by MAC
       let rows = P.map((p,i)=>({ Project:p, Abate:A[i], MAC:M[i], extra:this._data.extra[i] }));
       rows.sort((a,b)=>a.MAC-b.MAC);
 
@@ -291,13 +357,13 @@
       const capLim = total*capPct;
       const minLim = total*minPct;
 
-      rows = rows.map(r=>({...r, AbateShown:clamp(r.Abate,minLim,capLim)}));
+      rows = rows.map(r=>({...r, AbateShown:clamp(r.Abate, minLim, capLim)}));
 
       const pxToDom = total / Math.max(1, this._plotDiv.clientWidth || rootW);
-      rows = rows.map(r=>({...r, AbateShown:Math.max(r.AbateShown,20*pxToDom)}));
+      rows = rows.map(r=>({...r, AbateShown:Math.max(r.AbateShown, 20*pxToDom)}));
 
       let c=0;
-      rows = rows.map(r=>{ let xs=c, xe=c+r.AbateShown; c=xe; return {...r,x_mid:(xs+xe)/2}; });
+      rows = rows.map(r=>{ let xs=c, xe=c+r.AbateShown; c=xe; return {...r, x_mid:(xs+xe)/2}; });
 
       const x  = rows.map(r=>r.x_mid);
       const y  = rows.map(r=>r.MAC);
@@ -306,9 +372,9 @@
 
       const barTrace = {
         type:"bar",
-        x,y,width:w,
+        x, y, width:w,
         marker:{ color:col, line:{ color:"rgba(0,0,0,0.9)", width:1.5 }},
-        hoverinfo:"none",
+        hoverinfo:"none",   // we manage tooltip
         customdata: rows.map(r=>([
           r.Project.label, r.Project.key, r.Abate, r.MAC,
           r.extra?.cumulative, r.extra?.npv, r.extra?.capex, r.extra?.opex, r.extra?.category
@@ -317,41 +383,43 @@
 
       const layout={
         margin:{t:50,l:80,r:40,b:60},
-        hovermode:"closest",
+        hovermode:"closest",        // keep Plotly hit-testing ON
         hoverdistance:25,
         spikedistance:25,
         xaxis:{title:"Total Abatement (tCO₂e)"},
         yaxis:{title:"MAC (EUR/tCO₂e)"}
       };
 
-      const draw = () => {
-        Plotly.newPlot(this._plotDiv,[barTrace],layout,{responsive:true})
-          .then(gd=>{
-            this._plotted=true;
+      // Defer the draw slightly so SAC has settled the responsive layout
+      setTimeout(() => {
+        Plotly.newPlot(this._plotDiv, [barTrace], layout, {
+          responsive: true,
+          displayModeBar: false,    // hide toolbar
+          displaylogo: false
+        }).then(gd => {
+          this._plotted = true;
 
-            setTimeout(()=>{ try{ Plotly.Plots.resize(gd); }catch(_){ } },90);
+          // one more resize to ensure correct sampling after first paint
+          setTimeout(() => { try{ Plotly.Plots.resize(gd); }catch(_){ } }, 90);
 
-            gd.on("plotly_hover", ev => {
-              console.log("[MACC] plotly_hover fired");
-              const p = ev?.points?.[0];
-              if (!p) return;
-              const idx = p.pointIndex;
-              const row = rows[idx];
-              if (!row) return;
-              this._tipShow(this._tipHtml(row), ev.event.clientX, ev.event.clientY);
-            });
+          // Suppress overlays now & on every redraw; rebind hover handlers every cycle
+          this._suppressPlotlyOverlays();
+          const rebind = () => {
+            this._suppressPlotlyOverlays();
+            this._bindHoverHandlers(gd, rows);
+          };
+          rebind();
 
-            gd.on("plotly_unhover", () => this._tipHide());
+          gd.on("plotly_relayout",    () => { this._tipHide(); rebind(); });
+          gd.on("plotly_redraw",      rebind);
+          gd.on("plotly_autosize",    rebind);
+          gd.on("plotly_doubleclick", () => { this._tipHide(); rebind(); });
 
-            // LA disabled in this stable version
-          })
-          .catch(e=>{
-            console.error("Plot error:",e);
-            this._plotDiv.innerHTML="Plot error";
-          });
-      };
-
-      setTimeout(draw, isResize ? 40 : 100);
+        }).catch(e=>{
+          console.error("Plot error:",e);
+          this._plotDiv.innerHTML="Plot error";
+        });
+      }, isResize ? 40 : 100);
     }
   }
 
