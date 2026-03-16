@@ -87,7 +87,7 @@
       /* LEGEND (top-right) */
       #macc-legend {
         position: absolute;
-        top: 8px;
+        top: 12px;
         right: 10px;
         background: rgba(255,255,255,0.96);
         border: 1px solid rgba(0,0,0,0.12);
@@ -713,7 +713,16 @@
         hoverdistance:25,
         spikedistance:25,
         xaxis:{ title:"Total Abatement (tCO₂e)" },
-        yaxis:{ title:"MAC (EUR/tCO₂e)" }
+        yaxis:{ 
+title: "MAC (EUR/tCO₂e)",
++ zeroline: true,
++ zerolinecolor: "#000",
++ zerolinewidth: 2,
++ range: [
++   -Math.max(...y.map(v => Math.abs(v))),
++    Math.max(...y.map(v => Math.abs(v)))
++ ]
+ }
       };
 
       // Debounced + deferred rendering for SAC layout stability
