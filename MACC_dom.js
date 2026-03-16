@@ -1,11 +1,11 @@
 (function () {
 
   // ============================================================================
-  //  VARIABLE WIDTH MACC — v1.7.8
-  //  - HTML tooltip (Funnel-style), not Plotly bubble
+  //  VARIABLE WIDTH MACC — v1.7.9 (Legend + HTML tooltip, SAC-safe)
+  //  - Classic 5-bucket legend for MAC (Excel-style thresholds)
+  //  - HTML tooltip (Category, Cum, NPV, Capex, Opex, MAC, Abate, ID & Label)
   //  - Bars are truly variable-width: proportional to Total abatement
-  //  - MAC color ramp (Excel-style): deep green → red with adjustable cutoffs
-  //  - Zoom/pan/autosize/double-click stable (event rebind each cycle)
+  //  - Zoom/pan/autosize/double-click stable (rebind each cycle)
   //  - Plotly toolbar hidden + hoverlayer suppressed (CSS + JS)
   //  - Debounced + deferred rendering for SAC responsive layout
   //  - Linked Analysis disabled in this build (we can re-enable later)
@@ -18,7 +18,7 @@
     styleEl.textContent = `
       :host { display:block; width:100%; height:100%; }
 
-      /* Root container (anchor for tooltip positioning) */
+      /* Root container (anchor for tooltip & legend positioning) */
       #macc-root {
         position: relative;
         width: 100%;
@@ -40,7 +40,7 @@
       #macc-plot .hoverlayer { display: none !important; }
       #macc-plot .modebar    { display: none !important; }
 
-      /* HTML tooltip panel (our own) */
+      /* HTML tooltip panel */
       #macc-tip {
         position: absolute;
         max-width: 360px;
@@ -55,28 +55,68 @@
         z-index: 9999;
         opacity: 0;
         white-space: normal;
-        transform: translate(-50%,-110%); /* above cursor */
+        transform: translate(-50%,-110%);
         transition: opacity 80ms ease-out;
       }
       #macc-tip.show { opacity: 0.98; }
-
       #macc-tip .ttl { font-weight: 600; margin-bottom: 6px; }
       #macc-tip .row { display:flex; align-items:baseline; gap:6px; }
       #macc-tip .k   { color:#555; min-width:145px; }
       #macc-tip .v   { color:#111; }
+
+      /* Classic 5-bucket MAC legend (top-right) */
+      #macc-legend {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        background: rgba(255,255,255,0.96);
+        border: 1px solid rgba(0,0,0,0.12);
+        border-radius: 6px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+        padding: 8px 10px;
+        font: 12px/1.3 "Segoe UI", Arial, sans-serif;
+        color: #222;
+        z-index: 20;
+        pointer-events: none;  /* strictly display */
+        max-width: 220px;
+      }
+      #macc-legend .title {
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      #macc-legend .item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 2px 0;
+      }
+      #macc-legend .swatch {
+        width: 14px; height: 14px;
+        border-radius: 3px;
+        border: 1px solid rgba(0,0,0,0.25);
+        flex: 0 0 14px;
+      }
+      #macc-legend .label {
+        color: #222;
+        white-space: nowrap;
+      }
     `;
 
-    const root = document.createElement("div");
+    const root   = document.createElement("div");
     root.id = "macc-root";
 
-    const plot = document.createElement("div");
+    const plot   = document.createElement("div");
     plot.id = "macc-plot";
 
-    const tip  = document.createElement("div");
+    const tip    = document.createElement("div");
     tip.id = "macc-tip";
+
+    const legend = document.createElement("div");
+    legend.id = "macc-legend";
 
     root.appendChild(plot);
     root.appendChild(tip);
+    root.appendChild(legend);
 
     template.content.appendChild(styleEl);
     template.content.appendChild(root);
@@ -87,7 +127,7 @@
 
   // Excel-like MAC color ramp with adjustable thresholds
   function macColorFactory(th) {
-    const { neg2, neg1, pos1, pos2 } = th; // [-500, 0, 300, 1000] by default
+    const { neg2, neg1, pos1, pos2 } = th; // defaults below
     return (v) => {
       if (v <= neg2) return "#2ECC71";  // deep green
       if (v <= neg1) return "#ABEBC6";  // light green
@@ -100,7 +140,7 @@
   const dimSlot = (r, idx) => r?.[`dimension_${idx}`] || null;
   const meas    = (r, id)  => {
     const v = r?.[`${id}_0`];
-    return (typeof v === "object" && v !== null) ? v.raw : v; // SAC measure objects: { raw, formatted }
+    return (typeof v === "object" && v !== null) ? v.raw : v; // SAC measure objects sometimes hold {raw, formatted}
   };
 
   function detectDimTechId(binding, rows){
@@ -137,23 +177,24 @@
     constructor(){
       super();
 
-      this._shadow = this.attachShadow({ mode:"open" });
+      this._shadow  = this.attachShadow({ mode:"open" });
       this._shadow.appendChild(template.content.cloneNode(true));
 
       // DOM refs
       this._root    = this._shadow.querySelector("#macc-root");
       this._plotDiv = this._shadow.querySelector("#macc-plot");
       this._tip     = this._shadow.querySelector("#macc-tip");
+      this._legend  = this._shadow.querySelector("#macc-legend");
 
       // Version marker
-      this._version = "v1.7.8";
+      this._version = "v1.7.9";
       console.log("%c[MACC] Loaded", "color:green", this._version);
 
       // State
       this._initialized = false;
       this._plotted     = false;
 
-      // Linked Analysis disabled in this build (we can re-enable later)
+      // Linked Analysis disabled (we can re-enable later)
       this._supportsLA  = false;
 
       // Data & style state
@@ -161,16 +202,17 @@
       this._data  = { project:[], abatement:[], mac:[], extra:[] };
 
       this._style = {
-        // Tooltip font baseline (kept for future customizations)
         fontSize: 12,
 
-        // **Bar width control (true variable width)**
-        minBarPx: 6,       // minimum visible bar width, in pixels
-        maxBarPx: 140,     // (not used when width = abatement in domain units; kept for future toggles)
-        // We now use abatement directly in domain units + a small pixel floor
+        // TRUE variable width control
+        minBarPx: 6,   // small pixel floor so tiny projects are still visible
 
-        // **MAC color thresholds (Excel-like)**
-        macThresh: { neg2:-500, neg1:0, pos1:300, pos2:1000 }
+        // Excel-style MAC thresholds (A: classic bucket legend)
+        macThresh: { neg2:-500, neg1:0, pos1:300, pos2:1000 },
+
+        // Legend toggles
+        showLegend: true,
+        legendTitle: "MAC Color Legend"
       };
       this._macColor = macColorFactory(this._style.macThresh);
 
@@ -193,6 +235,7 @@
       ensurePlotly().then(()=>{
         this._initialized = true;
         if (this._root.isConnected) this._ro.observe(this._root);
+        this._renderLegend(); // draw legend immediately with defaults
         this._render();
       });
     }
@@ -234,9 +277,12 @@
 
       if ("maccBinding" in props) this._ingest(props.maccBinding);
 
-      // Optional external overrides
-      if (props.fontSize)  this._style.fontSize = Number(props.fontSize)||12;
-      if (props.minBarPx)  this._style.minBarPx = Math.max(1, Number(props.minBarPx)||6);
+      // External overrides (optional)
+      if (props.fontSize)   this._style.fontSize = Number(props.fontSize)||12;
+      if (props.minBarPx)   this._style.minBarPx = Math.max(1, Number(props.minBarPx)||6);
+      if (props.showLegend !== undefined) this._style.showLegend = !!props.showLegend;
+      if (props.legendTitle) this._style.legendTitle = String(props.legendTitle);
+
       if (props.macNeg2!=null || props.macNeg1!=null || props.macPos1!=null || props.macPos2!=null) {
         this._style.macThresh = {
           neg2: props.macNeg2 ?? this._style.macThresh.neg2,
@@ -245,6 +291,7 @@
           pos2: props.macPos2 ?? this._style.macThresh.pos2
         };
         this._macColor = macColorFactory(this._style.macThresh);
+        this._renderLegend(); // thresholds changed → refresh legend
       }
 
       this._render();
@@ -292,6 +339,35 @@
       }catch(e){
         console.error("Ingest error:", e);
       }
+    }
+
+    // ---------- Legend ----------
+    _formatN(n){ return (Number(n)).toLocaleString(undefined,{maximumFractionDigits:0}); }
+    _renderLegend(){
+      if (!this._legend) return;
+      if (!this._style.showLegend) { this._legend.style.display="none"; return; }
+
+      const th = this._style.macThresh;
+      const buckets = [
+        { color:"#2ECC71", label:`MAC ≤ ${this._formatN(th.neg2)}` },
+        { color:"#ABEBC6", label:`${this._formatN(th.neg2)} to ${this._formatN(th.neg1)}` },
+        { color:"#F7DC6F", label:`${this._formatN(th.neg1)} to ${this._formatN(th.pos1)}` },
+        { color:"#F5B041", label:`${this._formatN(th.pos1)} to ${this._formatN(th.pos2)}` },
+        { color:"#E74C3C", label:`> ${this._formatN(th.pos2)}` }
+      ];
+
+      const html = [
+        `<div class="title">${this._style.legendTitle}</div>`,
+        ...buckets.map(b=>(
+          `<div class="item">
+             <span class="swatch" style="background:${b.color}"></span>
+             <span class="label">${b.label}</span>
+           </div>`
+        ))
+      ].join("");
+
+      this._legend.innerHTML = html;
+      this._legend.style.display = "block";
     }
 
     // ---------- HTML tooltip ----------
@@ -388,10 +464,9 @@
       rows.sort((a,b)=>a.MAC-b.MAC);
 
       // === TRUE VARIABLE WIDTH (domain = abatement units) ===
-      // Width in x-axis domain = Abate (proportional), but with a small pixel floor for visibility
       const totalAb = rows.reduce((s,r)=>s+r.Abate,0);
       const pxToDom = totalAb / Math.max(1, this._plotDiv.clientWidth || rootW); // domain units per pixel
-      const minDom  = this._style.minBarPx * pxToDom;                              // min domain width to keep visible
+      const minDom  = this._style.minBarPx * pxToDom;                              // pixel floor in domain units
 
       rows = rows.map(r=>({ ...r, AbateShown: Math.max(r.Abate, minDom) }));
 
@@ -439,7 +514,6 @@
           // Suppress overlays now & on every redraw; rebind hover handlers every cycle
           this._suppressPlotlyOverlays();
           this._startOverlayObserver();
-
           const rebind = () => {
             this._suppressPlotlyOverlays();
             this._bindHoverHandlers(gd, rows);
