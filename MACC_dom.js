@@ -1,13 +1,14 @@
 (function () {
 
   // ============================================================================
-  //  VARIABLE WIDTH MACC — v1.7.7c-2 (SAP best-practice, HTML tooltip)
+  //  VARIABLE WIDTH MACC — v1.7.8
   //  - HTML tooltip (Funnel-style), not Plotly bubble
-  //  - Zoom/pan/autosize/double-click stable (rebind each cycle)
+  //  - Bars are truly variable-width: proportional to Total abatement
+  //  - MAC color ramp (Excel-style): deep green → red with adjustable cutoffs
+  //  - Zoom/pan/autosize/double-click stable (event rebind each cycle)
   //  - Plotly toolbar hidden + hoverlayer suppressed (CSS + JS)
-  //  - Mousemove-driven tooltip positioning
   //  - Debounced + deferred rendering for SAC responsive layout
-  //  - Linked Analysis disabled in this build (can be re-enabled later)
+  //  - Linked Analysis disabled in this build (we can re-enable later)
   // ============================================================================
 
   // ---------- Shadow DOM template ----------
@@ -83,16 +84,23 @@
 
   // ---------- Utility helpers ----------
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
-  const macColor = (v) => (v<0) ? "rgba(39,174,96,0.95)"
-                    : (v<30) ? "rgba(241,196,15,0.95)"
-                    : (v<1500) ? "rgba(230,126,34,0.95)"
-                             : "rgba(231,76,60,0.95)";
+
+  // Excel-like MAC color ramp with adjustable thresholds
+  function macColorFactory(th) {
+    const { neg2, neg1, pos1, pos2 } = th; // [-500, 0, 300, 1000] by default
+    return (v) => {
+      if (v <= neg2) return "#2ECC71";  // deep green
+      if (v <= neg1) return "#ABEBC6";  // light green
+      if (v <= pos1) return "#F7DC6F";  // yellow
+      if (v <= pos2) return "#F5B041";  // orange
+      return "#E74C3C";                 // red
+    };
+  }
 
   const dimSlot = (r, idx) => r?.[`dimension_${idx}`] || null;
   const meas    = (r, id)  => {
     const v = r?.[`${id}_0`];
-    return (typeof v === "object" && v !== null) ? v.raw : v;
-    // SAC sometimes returns objects with { raw, formatted }
+    return (typeof v === "object" && v !== null) ? v.raw : v; // SAC measure objects: { raw, formatted }
   };
 
   function detectDimTechId(binding, rows){
@@ -138,24 +146,37 @@
       this._tip     = this._shadow.querySelector("#macc-tip");
 
       // Version marker
-      this._version = "v1.7.7c-2";
+      this._version = "v1.7.8";
       console.log("%c[MACC] Loaded", "color:green", this._version);
 
       // State
       this._initialized = false;
       this._plotted     = false;
-      this._pendingDraw = false;
 
-      // LA disabled in this build (can be re-enabled later)
+      // Linked Analysis disabled in this build (we can re-enable later)
       this._supportsLA  = false;
 
       // Data & style state
       this._props = {};
       this._data  = { project:[], abatement:[], mac:[], extra:[] };
-      this._style = { widthCap:10, minWidth:0.2, xPadding:5, fontSize:12 };
+
+      this._style = {
+        // Tooltip font baseline (kept for future customizations)
+        fontSize: 12,
+
+        // **Bar width control (true variable width)**
+        minBarPx: 6,       // minimum visible bar width, in pixels
+        maxBarPx: 140,     // (not used when width = abatement in domain units; kept for future toggles)
+        // We now use abatement directly in domain units + a small pixel floor
+
+        // **MAC color thresholds (Excel-like)**
+        macThresh: { neg2:-500, neg1:0, pos1:300, pos2:1000 }
+      };
+      this._macColor = macColorFactory(this._style.macThresh);
+
       this._dimTechId = null;
 
-      // Mouse handlers (to avoid duplicates on rebinding)
+      // Mouse handlers (avoid duplicates on rebinding)
       this._onMoveHandler  = null;
       this._onLeaveHandler = null;
 
@@ -213,15 +234,21 @@
 
       if ("maccBinding" in props) this._ingest(props.maccBinding);
 
-      ["widthCap","minWidth","xPadding","fontSize"].forEach(k=>{
-        if (k in props) this[k] = props[k];
-      });
-    }
+      // Optional external overrides
+      if (props.fontSize)  this._style.fontSize = Number(props.fontSize)||12;
+      if (props.minBarPx)  this._style.minBarPx = Math.max(1, Number(props.minBarPx)||6);
+      if (props.macNeg2!=null || props.macNeg1!=null || props.macPos1!=null || props.macPos2!=null) {
+        this._style.macThresh = {
+          neg2: props.macNeg2 ?? this._style.macThresh.neg2,
+          neg1: props.macNeg1 ?? this._style.macThresh.neg1,
+          pos1: props.macPos1 ?? this._style.macThresh.pos1,
+          pos2: props.macPos2 ?? this._style.macThresh.pos2
+        };
+        this._macColor = macColorFactory(this._style.macThresh);
+      }
 
-    set widthCap(v){ this._style.widthCap = Number(v)||10; this._render(); }
-    set minWidth(v){ this._style.minWidth = Number(v)||0.2; this._render(); }
-    set xPadding(v){ this._style.xPadding = Number(v)||5; this._render(); }
-    set fontSize(v){ this._style.fontSize = Number(v)||12; this._render(); }
+      this._render();
+    }
 
     // ---------- Ingest ----------
     _ingest(binding){
@@ -348,7 +375,7 @@
 
       const rootW = this._root.clientWidth;
       const rootH = this._root.clientHeight;
-      if (rootW < 120 || rootH < 120) { this._pendingDraw = true; return; }
+      if (rootW < 120 || rootH < 120) return;
 
       const P=this._data.project,
             A=this._data.abatement,
@@ -360,24 +387,22 @@
       let rows = P.map((p,i)=>({ Project:p, Abate:A[i], MAC:M[i], extra:this._data.extra[i] }));
       rows.sort((a,b)=>a.MAC-b.MAC);
 
-      const total  = rows.reduce((s,r)=>s+r.Abate,0);
-      const capPct = clamp(this._style.widthCap,1,50)/100;
-      const minPct = clamp(this._style.minWidth,0.05,5)/100;
-      const capLim = total*capPct;
-      const minLim = total*minPct;
+      // === TRUE VARIABLE WIDTH (domain = abatement units) ===
+      // Width in x-axis domain = Abate (proportional), but with a small pixel floor for visibility
+      const totalAb = rows.reduce((s,r)=>s+r.Abate,0);
+      const pxToDom = totalAb / Math.max(1, this._plotDiv.clientWidth || rootW); // domain units per pixel
+      const minDom  = this._style.minBarPx * pxToDom;                              // min domain width to keep visible
 
-      rows = rows.map(r=>({...r, AbateShown:clamp(r.Abate, minLim, capLim)}));
+      rows = rows.map(r=>({ ...r, AbateShown: Math.max(r.Abate, minDom) }));
 
-      const pxToDom = total / Math.max(1, this._plotDiv.clientWidth || rootW);
-      rows = rows.map(r=>({...r, AbateShown:Math.max(r.AbateShown, 20*pxToDom)}));
-
+      // Place bars sequentially across the x-axis using the variable widths
       let c=0;
-      rows = rows.map(r=>{ let xs=c, xe=c+r.AbateShown; c=xe; return {...r, x_mid:(xs+xe)/2}; });
+      rows = rows.map(r=>{ const xs=c, xe=c+r.AbateShown; c=xe; return {...r, x_mid:(xs+xe)/2}; });
 
       const x  = rows.map(r=>r.x_mid);
       const y  = rows.map(r=>r.MAC);
       const w  = rows.map(r=>r.AbateShown);
-      const col= rows.map(r=>macColor(r.MAC));
+      const col= rows.map(r=>this._macColor(r.MAC));
 
       const barTrace = {
         type:"bar",
