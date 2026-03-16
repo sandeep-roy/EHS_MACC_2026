@@ -1,13 +1,13 @@
 (function () {
 
   // ============================================================================
-  //  VARIABLE WIDTH MACC — v1.7.7c (SAP best-practice)
+  //  VARIABLE WIDTH MACC — v1.7.7c-2 (SAP best-practice, HTML tooltip)
   //  - HTML tooltip (Funnel-style), not Plotly bubble
   //  - Zoom/pan/autosize/double-click stable (rebind each cycle)
   //  - Plotly toolbar hidden + hoverlayer suppressed (CSS + JS)
   //  - Mousemove-driven tooltip positioning
   //  - Debounced + deferred rendering for SAC responsive layout
-  //  - Linked Analysis disabled in this build (safe to re-enable later)
+  //  - Linked Analysis disabled in this build (can be re-enabled later)
   // ============================================================================
 
   // ---------- Shadow DOM template ----------
@@ -84,14 +84,15 @@
   // ---------- Utility helpers ----------
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
   const macColor = (v) => (v<0) ? "rgba(39,174,96,0.95)"
-                    : (v<25) ? "rgba(241,196,15,0.95)"
-                    : (v<50) ? "rgba(230,126,34,0.95)"
+                    : (v<30) ? "rgba(241,196,15,0.95)"
+                    : (v<1500) ? "rgba(230,126,34,0.95)"
                              : "rgba(231,76,60,0.95)";
 
   const dimSlot = (r, idx) => r?.[`dimension_${idx}`] || null;
   const meas    = (r, id)  => {
     const v = r?.[`${id}_0`];
     return (typeof v === "object" && v !== null) ? v.raw : v;
+    // SAC sometimes returns objects with { raw, formatted }
   };
 
   function detectDimTechId(binding, rows){
@@ -105,7 +106,7 @@
       if (d0?.dimensionId) return d0.dimensionId;
       if (d0?.id) return d0.id;
     } catch(_) {}
-    return "Project_ID";
+    return "Project_ID"; // safe fallback for your model
   }
 
   // ---------- Plotly loader ----------
@@ -137,7 +138,7 @@
       this._tip     = this._shadow.querySelector("#macc-tip");
 
       // Version marker
-      this._version = "v1.7.7c";
+      this._version = "v1.7.7c-2";
       console.log("%c[MACC] Loaded", "color:green", this._version);
 
       // State
@@ -157,6 +158,9 @@
       // Mouse handlers (to avoid duplicates on rebinding)
       this._onMoveHandler  = null;
       this._onLeaveHandler = null;
+
+      // MutationObserver for Plotly overlays
+      this._overlayMO = null;
 
       // Resize debounce
       this._resizeTimer = null;
@@ -179,6 +183,7 @@
         if (this._onMoveHandler)  this._plotDiv.removeEventListener("mousemove", this._onMoveHandler);
         if (this._onLeaveHandler) this._plotDiv.removeEventListener("mouseleave", this._onLeaveHandler);
       }catch(_){}
+      this._stopOverlayObserver();
     }
 
     // ---------- Data binding contract ----------
@@ -265,18 +270,18 @@
     // ---------- HTML tooltip ----------
     _tipHtml(row) {
       const e = row.extra || {};
-      const n = (v,d=0)=>(Number.isFinite(+v)?(+v).toLocaleString(undefined,{maximumFractionDigits:d}):"-");
-      return `
-        <div class="ttl">${row.Project?.label ?? ""}</div>
-        <div class="row"><div class="k">Project ID:</div><div class="v">${row.Project.key}</div></div>
-        ${e.category ? `<div class="row"><div class="k">Category:</div><div class="v">${e.category}</div></div>` : ""}
-        <div class="row"><div class="k">MAC:</div><div class="v">${n(row.MAC,2)} EUR/tCO₂e</div></div>
-        <div class="row"><div class="k">Total abatement:</div><div class="v">${n(row.Abate)} tCO₂e</div></div>
-        ${Number.isFinite(e.cumulative) ? `<div class="row"><div class="k">Cumulative abatement:</div><div class="v">${n(e.cumulative)} tCO₂e</div></div>` : ""}
-        ${Number.isFinite(e.npv)        ? `<div class="row"><div class="k">NPV cost:</div><div class="v">${n(e.npv)} EUR</div></div>` : ""}
-        ${Number.isFinite(e.capex)      ? `<div class="row"><div class="k">Capex:</div><div class="v">${n(e.capex)} EUR</div></div>` : ""}
-        ${Number.isFinite(e.opex)       ? `<div class="row"><div class="k">Opex:</div><div class="v">${n(e.opex)} EUR/yr</div></div>` : ""}
-      `;
+      const n = (v,d=0)=>(Number.isFinite(+v)?(+v).toLocaleString(undefined,{maximumFractionDigits:d}):"–");
+      const t = [];
+      t.push(`<div class="ttl">${row.Project?.label ?? ""}</div>`);
+      t.push(`<div class="row"><div class="k">Project ID:</div><div class="v">${row.Project.key ?? "–"}</div></div>`);
+      if (e.category) t.push(`<div class="row"><div class="k">Category:</div><div class="v">${e.category}</div></div>`);
+      t.push(`<div class="row"><div class="k">MAC:</div><div class="v">${n(row.MAC,2)} EUR/tCO₂e</div></div>`);
+      t.push(`<div class="row"><div class="k">Total abatement:</div><div class="v">${n(row.Abate)} tCO₂e</div></div>`);
+      t.push(`<div class="row"><div class="k">Cumulative abatement:</div><div class="v">${n(e.cumulative)} tCO₂e</div></div>`);
+      t.push(`<div class="row"><div class="k">NPV cost:</div><div class="v">${n(e.npv)} EUR</div></div>`);
+      t.push(`<div class="row"><div class="k">Capex:</div><div class="v">${n(e.capex)} EUR</div></div>`);
+      t.push(`<div class="row"><div class="k">Opex:</div><div class="v">${n(e.opex)} EUR/yr</div></div>`);
+      return t.join("");
     }
     _tipMove(clientX, clientY){
       const rect = this._root.getBoundingClientRect();
@@ -292,6 +297,14 @@
           .forEach(n => n && (n.style.display = "none"));
       } catch (_) {}
     }
+    _startOverlayObserver() {
+      this._stopOverlayObserver();
+      this._overlayMO = new MutationObserver(() => this._suppressPlotlyOverlays());
+      this._overlayMO.observe(this._plotDiv, { childList: true, subtree: true });
+    }
+    _stopOverlayObserver() {
+      try { this._overlayMO?.disconnect(); } catch(_) {}
+    }
 
     // ---------- (Re)bind hover handlers ----------
     _bindHoverHandlers(gd, rows) {
@@ -302,8 +315,7 @@
       gd.on("plotly_hover", (ev) => {
         const p = ev?.points?.[0];
         if (!p) return;
-        const idx = p.pointIndex;
-        const row = rows[idx];
+        const row = rows[p.pointIndex];
         if (!row) return;
 
         this._tip.innerHTML = this._tipHtml(row);
@@ -316,15 +328,12 @@
 
       gd.on("plotly_unhover", () => this._tipHide());
 
-      // Keep tooltip following the pointer (Plotly may not refire 'hover' each pixel)
+      // Keep tooltip following pointer (Plotly may not refire 'hover' every pixel)
       const onMove = (e) => {
-        if (this._tip.classList.contains("show")) {
-          this._tipMove(e.clientX, e.clientY);
-        }
+        if (this._tip.classList.contains("show")) this._tipMove(e.clientX, e.clientY);
       };
       const onLeave = () => this._tipHide();
 
-      // replace previous handlers
       this._plotDiv.removeEventListener("mousemove", this._onMoveHandler);
       this._plotDiv.removeEventListener("mouseleave", this._onLeaveHandler);
       this._onMoveHandler  = onMove;
@@ -404,6 +413,8 @@
 
           // Suppress overlays now & on every redraw; rebind hover handlers every cycle
           this._suppressPlotlyOverlays();
+          this._startOverlayObserver();
+
           const rebind = () => {
             this._suppressPlotlyOverlays();
             this._bindHoverHandlers(gd, rows);
