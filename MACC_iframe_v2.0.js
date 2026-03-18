@@ -25,9 +25,9 @@
             return {
                 maccBinding: {
                     feeds: [
-                        { id: "dimension", type:"dimension" },
-                        { id: "measure_abate", type:"mainStructureMember" },
-                        { id: "measure_mac", type:"mainStructureMember" }
+                        { id:"dimension", type:"dimension" },
+                        { id:"measure_abate", type:"mainStructureMember" },
+                        { id:"measure_mac", type:"mainStructureMember" }
                     ]
                 }
             };
@@ -39,7 +39,9 @@
         onCustomWidgetBeforeUpdate(p){ if (p.maccBinding) this._ingest(p.maccBinding); }
         onCustomWidgetAfterUpdate(p){ if (p.maccBinding) this._ingest(p.maccBinding); }
 
-        /* SAFE INGEST */
+        /* ---------------------------------------------------------
+           SAFE INGEST FOR SAC STRUCTURE
+        --------------------------------------------------------- */
         _ingest(binding){
             const rows = binding.data || [];
             const P=[], A=[], M=[];
@@ -62,10 +64,13 @@
             if (evt.source !== this._frame.contentWindow) return;
             const msg = evt.data;
             if (msg?.type === "bar_click") {
-                this.dispatchEvent(new CustomEvent("onSelect", { detail: { label: msg.label }}));
+                this.dispatchEvent(new CustomEvent("onSelect", { detail:{ label:msg.label }}));
             }
         }
 
+        /* ---------------------------------------------------------
+           RENDER MACC CHART (SVG)
+        --------------------------------------------------------- */
         _render(){
 
             const d = this._data;
@@ -77,9 +82,9 @@
 <style>
 body { margin:0; overflow:hidden; font-family:Arial; }
 #tooltip {
-    position:absolute; padding:6px 10px; background:rgba(0,0,0,0.75);
-    color:white; border-radius:4px; font-size:12px;
-    pointer-events:none; display:none;
+    position:absolute; background:rgba(0,0,0,0.75); 
+    color:white; padding:6px 10px; border-radius:4px;
+    font-size:12px; display:none; pointer-events:none;
 }
 </style>
 </head>
@@ -98,43 +103,54 @@ function draw(){
 
     const W = svg.clientWidth;
     const H = svg.clientHeight;
-
     svg.innerHTML = "";
 
-    /* Updated margins to position labels outside the chart area */
     const margin = { top: 50, right: 50, bottom: 90, left: 120 };
     const innerW = W - margin.left - margin.right;
     const innerH = H - margin.top - margin.bottom;
 
-    // Dataset
+    /* Build dataset */
     const ds = DATA.project.map((p,i)=>({
         name:p,
         abate:DATA.abatement[i],
         mac:DATA.mac[i]
     }));
 
-    // Sort by MAC (true MACC)
+    /* Sort by MAC ascending (true MACC form) */
     ds.sort((a,b)=> a.mac - b.mac);
 
-    // Cumulative X
+    /* Cumulative abatement */
     let cum = 0;
-    ds.forEach(d=>{ d.x0=cum; cum+=d.abate; d.x1=cum; });
+    ds.forEach(d=>{ d.x0 = cum; cum += d.abate; d.x1 = cum; });
 
     if (cum <= 0) return;
 
     const x = v => margin.left + (v/cum)*innerW;
 
-    /* MAC shaping (exponent = 0.7) + extra scaling factor (1.25) */
+    /* MAC color scale (original MAC values) */
+    const minMACorig = Math.min(...ds.map(d=>d.mac));
+    const maxMACorig = Math.max(...ds.map(d=>d.mac));
+
+    function macColor(v){
+        const t = (v - minMACorig) / (maxMACorig - minMACorig);
+        if (t < 0.20) return "#2ca25f";   // deep green
+        if (t < 0.40) return "#a1d99b";   // light green
+        if (t < 0.60) return "#fee391";   // yellow
+        if (t < 0.80) return "#fb9a29";   // orange
+        return "#de2d26";                // red
+    }
+
+    /* MAC shaping (0.7 exponent) */
     const SHAPE = 0.7;
     const SCALE = 1.25;
     ds.forEach(d=>{
         d.macShaped = Math.sign(d.mac) * Math.pow(Math.abs(d.mac), SHAPE) * SCALE;
     });
 
-    // Compute Y scale
-    let macVals = ds.map(d=>d.macShaped);
-    let maxMAC = Math.max(...macVals);
-    let minMAC = Math.min(...macVals);
+    /* Y-scale range (based on shaped MAC) */
+    let shapedVals = ds.map(d=>d.macShaped);
+    let maxMAC = Math.max(...shapedVals);
+    let minMAC = Math.min(...shapedVals);
 
     const PAD = (maxMAC-minMAC)*0.18;
     maxMAC += PAD;
@@ -144,7 +160,9 @@ function draw(){
     const y = v => margin.top + (1 - (v-minMAC)/(maxMAC-minMAC)) * innerH;
     const y0 = y(0);
 
-    /* Draw zero line */
+    /* ----------------------------
+       ZERO LINE (dotted)
+    ---------------------------- */
     const zero = document.createElementNS(svg.namespaceURI,"line");
     zero.setAttribute("x1", margin.left);
     zero.setAttribute("x2", W-margin.right);
@@ -155,19 +173,48 @@ function draw(){
     zero.setAttribute("stroke-width","1.5");
     svg.appendChild(zero);
 
-    /* Draw bars */
+    /* ----------------------------
+       TARGET LINE (60k)
+    ---------------------------- */
+    const TARGET = 60000;
+    if (TARGET < cum){
+        const tx = x(TARGET);
+        const tline = document.createElementNS(svg.namespaceURI,"line");
+        tline.setAttribute("x1", tx);
+        tline.setAttribute("x2", tx);
+        tline.setAttribute("y1", margin.top);
+        tline.setAttribute("y2", H-margin.bottom);
+        tline.setAttribute("stroke", "black");
+        tline.setAttribute("stroke-dasharray","6,6");
+        tline.setAttribute("stroke-width","2");
+        svg.appendChild(tline);
+
+        const label = document.createElementNS(svg.namespaceURI,"text");
+        label.textContent = "Target: 60,000 tCO₂e";
+        label.setAttribute("x", tx + 5);
+        label.setAttribute("y", margin.top - 12);
+        label.setAttribute("font-size","12");
+        svg.appendChild(label);
+    }
+
+    /* ----------------------------
+       BARS (WITH MAC COLOR SCALE)
+    ---------------------------- */
     ds.forEach(d=>{
+
         const rect = document.createElementNS(svg.namespaceURI,"rect");
 
-        const bw = Math.max(10, x(d.abate)-x(0));
+        const bw = Math.max(10, x(d.abate) - x(0));
 
         rect.setAttribute("x", x(d.x0));
         rect.setAttribute("width", bw);
         rect.setAttribute("y", d.macShaped>=0 ? y(d.macShaped): y0);
         rect.setAttribute("height", Math.abs(y(d.macShaped)-y0));
-        rect.setAttribute("fill", d.mac < 0 ? "#2ca25f" : "#de2d26");
 
-        /* BAR BORDERS */
+        /* MAC‑based color scale */
+        rect.setAttribute("fill", macColor(d.mac));
+
+        /* Border lines */
         rect.setAttribute("stroke", "#222");
         rect.setAttribute("stroke-width", "1.3");
 
@@ -175,15 +222,17 @@ function draw(){
 
         rect.addEventListener("mouseover",evt=>{
             tip.style.display="block";
-            tip.innerHTML=
-                "<b>"+d.name+"</b><br>"+
-                "MAC: "+d.mac+"<br>"+
-                "Abatement: "+d.abate;
+            tip.innerHTML =
+               "<b>"+d.name+"</b><br>"+
+               "MAC: "+d.mac+"<br>"+
+               "Abatement: "+d.abate;
         });
+
         rect.addEventListener("mousemove",evt=>{
             tip.style.left = evt.pageX+10+"px";
             tip.style.top  = evt.pageY-20+"px";
         });
+
         rect.addEventListener("mouseout",()=> tip.style.display="none");
 
         rect.addEventListener("click",()=>{
@@ -193,7 +242,9 @@ function draw(){
         svg.appendChild(rect);
     });
 
-    /* X-axis label */
+    /* ----------------------------
+       AXIS LABELS
+    ---------------------------- */
     const xlab = document.createElementNS(svg.namespaceURI,"text");
     xlab.textContent="Total Abatement (tCO₂e)";
     xlab.setAttribute("x", W/2);
@@ -202,7 +253,6 @@ function draw(){
     xlab.setAttribute("font-size","16");
     svg.appendChild(xlab);
 
-    /* Y-axis label */
     const ylab = document.createElementNS(svg.namespaceURI,"text");
     ylab.textContent="MAC (EUR/tCO₂e)";
     ylab.setAttribute("transform","rotate(-90)");
