@@ -22,23 +22,13 @@
             this._shadow = this.attachShadow({ mode: "open" });
             this._shadow.appendChild(template.content.cloneNode(true));
 
-            // Iframe reference
             this._frame = this._shadow.querySelector("#frame");
-
-            // Data container
-            this._data = {
-                project: [],
-                abatement: [],
-                mac: []
-            };
-
+            this._data = { project: [], abatement: [], mac: [] };
             this._dimTechId = "dimension";
 
-            // Bind message handler
             this._onMessage = this._onMessage.bind(this);
         }
 
-        // SAC binding structure
         getDataBindings() {
             return {
                 maccBinding: {
@@ -59,21 +49,14 @@
             window.removeEventListener("message", this._onMessage);
         }
 
-        // SAC → before update
         onCustomWidgetBeforeUpdate(p) {
-            if (p.maccBinding) {
-                this._ingest(p.maccBinding);
-            }
+            if (p.maccBinding) this._ingest(p.maccBinding);
         }
 
-        // SAC → after update
         onCustomWidgetAfterUpdate(p) {
-            if (p.maccBinding) {
-                this._ingest(p.maccBinding);
-            }
+            if (p.maccBinding) this._ingest(p.maccBinding);
         }
 
-        // Read SAC dataset rows
         _ingest(binding) {
             const rows = binding.data || [];
             const P = [], A = [], M = [];
@@ -84,9 +67,7 @@
                     md?.dimensions?.[0]?.id ||
                     md?.dimensions?.[0]?.key ||
                     "dimension";
-            } catch (err) {
-                console.warn("Metadata error:", err);
-            }
+            } catch (_) { }
 
             for (const r of rows) {
                 const d = r.dimensions?.[0] || {};
@@ -100,63 +81,127 @@
                 M.push(+mc);
             }
 
-            this._data = {
-                project: P,
-                abatement: A,
-                mac: M
-            };
-
+            this._data = { project: P, abatement: A, mac: M };
             this._render();
         }
 
-        // For incoming messages from iframe only
         _onMessage(evt) {
-            if (!this._frame || evt.source !== this._frame.contentWindow) {
-                return; // Ignore messages not from our iframe
-            }
-
-            const msg = evt.data;
-            if (!msg) return;
-
-            console.log("[MACC Widget] Received message from iframe:", msg);
-
-            // PLACEHOLDER: Handle future linked‑analysis events here
-            // Example:
-            // if (msg.type === "selection") { ... }
+            if (!this._frame || evt.source !== this._frame.contentWindow) return;
         }
 
-        // Render fresh iframe content
         _render() {
+            const payload = this._data;
+
             const html = `
                 <html>
                 <head>
+                    <meta charset="utf-8" />
                     <style>
                         body {
                             margin: 0;
                             font-family: Arial, sans-serif;
                         }
+                        .tooltip {
+                            position: absolute;
+                            background: rgba(0,0,0,0.7);
+                            color: white;
+                            padding: 6px 10px;
+                            font-size: 12px;
+                            border-radius: 4px;
+                            pointer-events: none;
+                        }
                     </style>
                 </head>
+
                 <body>
                     <div id="chartRoot"></div>
 
+                    <!-- Lightweight D3 subset -->
                     <script>
-                        // Data injected into iframe
-                        const MACC_DATA = ${JSON.stringify(this._data)};
+                        ${LIGHTWEIGHT_D3_MINIFIED}
+                    <\/script>
 
-                        console.log("MACC Data inside iframe:", MACC_DATA);
+                    <script>
+                        const DATA = ${JSON.stringify(payload)};
 
-                        // TODO: Insert your MACC rendering logic here
-                        // -----------------------------------------
-                        // Example:
-                        // drawMACCChart(MACC_DATA);
-                        // -----------------------------------------
+                        function drawMACC() {
+                            const container = document.getElementById("chartRoot");
+                            container.innerHTML = "";
 
-                        // Placeholder to confirm communication
-                        window.parent.postMessage(
-                            { type: "macc_iframe_loaded", payload: MACC_DATA },
-                            "*"
-                        );
+                            const margin = { top: 30, right: 40, bottom: 60, left: 70 };
+                            const width = container.clientWidth - margin.left - margin.right;
+                            const height = container.clientHeight - margin.top - margin.bottom;
+
+                            const svg = d3.select(container)
+                                .append("svg")
+                                .attr("width", width + margin.left + margin.right)
+                                .attr("height", height + margin.top + margin.bottom)
+                                .append("g")
+                                .attr("transform", \`translate(\${margin.left},\${margin.top})\`);
+
+                            // Build dataset
+                            const p,
+                                abate: DATA.abatement[i],
+                                mac: DATA.mac[i]
+                            })).sort((a, b) => d3.ascending(a.abate, b.abate));
+
+                            dataset.forEach((d, i) => {
+                                d.cumAbate = d3.sum(dataset.slice(0, i + 1), v => v.abate);
+                            });
+
+                            const x = d3.scaleLinear()
+                                .domain([0, d3.sum(dataset, d => d.abate)])
+                                .range([0, width]);
+
+                            const y = d3.scaleLinear()
+                                .domain([
+                                    d3.min(dataset, d => d.mac),
+                                    d3.max(dataset, d => d.mac)
+                                ])
+                                .nice()
+                                .range([height, 0]);
+
+                            const color = d3.scaleOrdinal(d3.schemeSet2);
+
+                            let cumStart = 0;
+
+                            svg.selectAll(".bar")
+                                .data(dataset)
+                                .enter()
+                                .append("rect")
+                                .attr("class", "bar")
+                                .attr("x", d => {
+                                    const val = cumStart;
+                                    cumStart += d.abate;
+                                    return x(val);
+                                })
+                                .attr("y", d => d.mac >= 0 ? y(d.mac) : y(0))
+                                .attr("width", d => x(d.abate) - x(0))
+                                .attr("height", d => Math.abs(y(d.mac) - y(0)))
+                                .attr("fill", d => color(d.project));
+
+                            const line = d3.line()
+                                .x(d => x(d.cumAbate))
+                                .y(d => y(d.mac))
+                                .curve(d3.curveMonotoneX);
+
+                            svg.append("path")
+                                .datum(dataset)
+                                .attr("fill", "none")
+                                .attr("stroke", "#222")
+                                .attr("stroke-width", 2)
+                                .attr("d", line);
+
+                            svg.append("g")
+                                .attr("transform", "translate(0," + y(0) + ")")
+                                .call(d3.axisBottom(x));
+
+                            svg.append("g")
+                                .call(d3.axisLeft(y));
+                        }
+
+                        window.addEventListener("resize", drawMACC);
+                        drawMACC();
                     <\/script>
                 </body>
                 </html>
@@ -168,4 +213,5 @@
     }
 
     customElements.define("variable-width-macc", VariableWidthMACC);
+
 })();
