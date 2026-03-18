@@ -24,8 +24,6 @@
 
             this._frame = this._shadow.querySelector("#frame");
             this._data = { project: [], abatement: [], mac: [] };
-            this._dimTechId = "dimension";
-
             this._onMessage = this._onMessage.bind(this);
         }
 
@@ -61,17 +59,10 @@
             const rows = binding.data || [];
             const P = [], A = [], M = [];
 
-            try {
-                const md = binding.metadata;
-                this._dimTechId =
-                    md?.dimensions?.[0]?.id ||
-                    md?.dimensions?.[0]?.key ||
-                    "dimension";
-            } catch (_) { }
-
             for (const r of rows) {
-                const d = r.dimensions?.[0] || {};
-                const lbl = d.description ?? d.text ?? d.label ?? d.id ?? "";
+                const dim = r.dimensions?.[0];
+                const lbl = dim?.description ?? dim?.text ?? dim?.label ?? dim?.id ?? "";
+
                 const ab = r.measures?.[0]?.raw ?? 0;
                 const mc = r.measures?.[1]?.raw ?? 0;
 
@@ -99,6 +90,7 @@
                         body {
                             margin: 0;
                             font-family: Arial, sans-serif;
+                            overflow: hidden;
                         }
                         .tooltip {
                             position: absolute;
@@ -111,9 +103,8 @@
                         }
                     </style>
 
-                    <!-- Load Lightweight D3 bundle -->
-                    <script src="https://sandeep-roy.github.io/EHS_MACC_2026/d3_light.min.js"></script>
-
+                    <!-- Load official D3 v7 (ALL modules included) -->
+                    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
                 </head>
 
                 <body>
@@ -126,7 +117,7 @@
                             const container = document.getElementById("chartRoot");
                             container.innerHTML = "";
 
-                            const margin = { top: 30, right: 40, bottom: 60, left: 70 };
+                            const margin = { top: 20, right: 30, bottom: 60, left: 60 };
                             const width = container.clientWidth - margin.left - margin.right;
                             const height = container.clientHeight - margin.top - margin.bottom;
 
@@ -137,6 +128,7 @@
                                 .append("g")
                                 .attr("transform", \`translate(\${margin.left},\${margin.top})\`);
 
+                            // Build dataset
                             const dataset = DATA.project.map((p, i) => ({
                                 project: p,
                                 abate: DATA.abatement[i],
@@ -156,7 +148,7 @@
                                 .nice()
                                 .range([height, 0]);
 
-                            const color = d3.scaleOrdinal(["#4daf4a","#377eb8","#e41a1c","#984ea3", "#ff7f00"]);
+                            const color = d3.scaleOrdinal(d3.schemeTableau10);
 
                             let cumStart = 0;
 
@@ -166,9 +158,9 @@
                                 .append("rect")
                                 .attr("class", "bar")
                                 .attr("x", d => {
-                                    const val = cumStart;
+                                    const s = cumStart;
                                     cumStart += d.abate;
-                                    return x(val);
+                                    return x(s);
                                 })
                                 .attr("y", d => d.mac >= 0 ? y(d.mac) : y(0))
                                 .attr("width", d => x(d.abate) - x(0))
@@ -177,7 +169,8 @@
 
                             const line = d3.line()
                                 .x(d => x(d.cumAbate))
-                                .y(d => y(d.mac));
+                                .y(d => y(d.mac))
+                                .curve(d3.curveMonotoneX);
 
                             svg.append("path")
                                 .datum(dataset)
@@ -207,5 +200,4 @@
     }
 
     customElements.define("variable-width-macc", VariableWidthMACC);
-
 })();
