@@ -113,7 +113,7 @@
     _render() {
 
       /* CHANGE THIS TO YOUR GITHUB PAGES URL */
-      this._frame.src = "https://<your-username>.github.io/<your-repo>/iframe.html";
+      this._frame.src = "https://sandeep-roy.github.io/EHS_MACC_2026/iframe.html";
 
       const sendData = () => {
         this._frame.contentWindow.postMessage({
