@@ -9,29 +9,48 @@
         <iframe id="frame"></iframe>
     `;
 
-    class VariableWidthMACC extends HTMLElement {
+   
+class VariableWidthMACC extends HTMLElement {
 
-        constructor() {
-            super();
-            this._shadow = this.attachShadow({ mode:"open" });
-            this._shadow.appendChild(template.content.cloneNode(true));
-            this._frame = this._shadow.querySelector("#frame");
+    constructor() {
+      super();
 
-            this._data = { project:[], abatement:[], mac:[] };
-            this._onMessage = this._onMessage.bind(this);
+      this._shadow = this.attachShadow({ mode: "open" });
+      this._shadow.appendChild(template.content.cloneNode(true));
+
+      this._frame = this._shadow.querySelector("#frame");
+
+      // EXPANDED data structure (all fields from JSON)
+      this._data = {
+        project: [],
+        category: [],
+        abatement: [],
+        mac: [],
+        cumulative: [],
+        npv: [],
+        capex: [],
+        opex: []
+      };
+
+      this._onMessage = this._onMessage.bind(this);
+    }
+
+    getDataBindings() {
+      return {
+        maccBinding: {
+          feeds: [
+            { id: "dimension", type: "dimension" },
+            { id: "dimension_cat", type: "dimension" },
+            { id: "measure_abate", type: "mainStructureMember" },
+            { id: "measure_mac", type: "mainStructureMember" },
+            { id: "measure_cum", type: "mainStructureMember" },
+            { id: "measure_npv", type: "mainStructureMember" },
+            { id: "measure_capex", type: "mainStructureMember" },
+            { id: "measure_opex", type: "mainStructureMember" }
+          ]
         }
-
-        getDataBindings() {
-            return {
-                maccBinding:{
-                    feeds:[
-                        { id:"dimension", type:"dimension" },
-                        { id:"measure_abate", type:"mainStructureMember" },
-                        { id:"measure_mac", type:"mainStructureMember" }
-                    ]
-                }
-            };
-        }
+      };
+    }
 
         connectedCallback(){ window.addEventListener("message", this._onMessage); }
         disconnectedCallback(){ window.removeEventListener("message", this._onMessage); }
@@ -42,19 +61,43 @@
         /* INGEST SAC DATA PROPERLY */
         _ingest(binding){
             const rows = binding.data || [];
-            const P=[], A=[], M=[];
+            const P = [], CAT = [], A = [], M = [], CUM = [],
+            NPV = [], CAPEX = [], OPEX = [];
+
 
             for (const r of rows){
                 const label = r.dimension_0?.label ?? r.dimension_0?.id ?? "";
                 const ab = r.measure_abate_0?.raw ?? 0;
                 const mc = r.measure_mac_0?.raw ?? 0;
+// Measures
+        const ab = r.measure_abate_0?.raw ?? 0;
+        const mc = r.measure_mac_0?.raw ?? 0;
+        const cum = r.measure_cum_0?.raw ?? 0;
+        const npv = r.measure_npv_0?.raw ?? 0;
+        const capex = r.measure_capex_0?.raw ?? 0;
+        const opex = r.measure_opex_0?.raw ?? 0;
+                  // Push into arrays
+        P.push(label);
+        CAT.push(category);
+        A.push(ab);
+        M.push(mc);
+        CUM.push(cum);
+        NPV.push(npv);
+        CAPEX.push(capex);
+        OPEX.push(opex);
 
-                P.push(label);
-                A.push(ab);
-                M.push(mc);
             }
-
-            this._data = { project:P, abatement:A, mac:M };
+// Store in master object
+            this._data = { 
+project: P,
+        category: CAT,
+        abatement: A,
+        mac: M,
+        cumulative: CUM,
+        npv: NPV,
+        capex: CAPEX,
+        opex: OPEX
+};
             this._render();
         }
 
