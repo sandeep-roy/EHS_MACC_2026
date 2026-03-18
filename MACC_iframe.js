@@ -72,7 +72,6 @@
             for (const r of rows) {
                 const d = r.dimensions?.[0] || {};
                 const lbl = d.description ?? d.text ?? d.label ?? d.id ?? "";
-
                 const ab = r.measures?.[0]?.raw ?? 0;
                 const mc = r.measures?.[1]?.raw ?? 0;
 
@@ -111,15 +110,14 @@
                             pointer-events: none;
                         }
                     </style>
+
+                    <!-- Load Lightweight D3 bundle -->
+                    <script src="https://sandeep-roy.github.io/EHS_MACC_2026/d3_light.min.js"></script>
+
                 </head>
 
                 <body>
-                    <div id="chartRoot"></div>
-
-                    <!-- Lightweight D3 subset -->
-                    <script>
-                        ${LIGHTWEIGHT_D3_MINIFIED}
-                    <\/script>
+                    <div id="chartRoot" style="width:100%; height:100%;"></div>
 
                     <script>
                         const DATA = ${JSON.stringify(payload)};
@@ -139,8 +137,8 @@
                                 .append("g")
                                 .attr("transform", \`translate(\${margin.left},\${margin.top})\`);
 
-                            // Build dataset
-                            const p,
+                            const dataset = DATA.project.map((p, i) => ({
+                                project: p,
                                 abate: DATA.abatement[i],
                                 mac: DATA.mac[i]
                             })).sort((a, b) => d3.ascending(a.abate, b.abate));
@@ -154,14 +152,11 @@
                                 .range([0, width]);
 
                             const y = d3.scaleLinear()
-                                .domain([
-                                    d3.min(dataset, d => d.mac),
-                                    d3.max(dataset, d => d.mac)
-                                ])
+                                .domain([d3.min(dataset, d => d.mac), d3.max(dataset, d => d.mac)])
                                 .nice()
                                 .range([height, 0]);
 
-                            const color = d3.scaleOrdinal(d3.schemeSet2);
+                            const color = d3.scaleOrdinal(["#4daf4a","#377eb8","#e41a1c","#984ea3", "#ff7f00"]);
 
                             let cumStart = 0;
 
@@ -182,8 +177,7 @@
 
                             const line = d3.line()
                                 .x(d => x(d.cumAbate))
-                                .y(d => y(d.mac))
-                                .curve(d3.curveMonotoneX);
+                                .y(d => y(d.mac));
 
                             svg.append("path")
                                 .datum(dataset)
