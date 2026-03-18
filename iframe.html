@@ -73,15 +73,16 @@ function draw() {
     const innerH = H - margin.top - margin.bottom;
 
     const ds = DATA.project.map((p, i) => ({
-        name: p,
-        cat: DATA.category[i],
-        abate: DATA.abatement[i],
-        mac: DATA.mac[i],
-        cum: DATA.cumulative[i],
-        npv: DATA.npv[i],
-        capex: DATA.capex[i],
-        opex: DATA.opex[i]
-    }));
+    name: p,
+    cat: DATA.category[i],
+    abate: Number(DATA.abatement[i]) || 0,
+    mac: Number(DATA.mac[i]) || 0,
+    cum: Number(DATA.cumulative[i]) || 0,
+    npv: Number(DATA.npv[i]) || 0,
+    capex: Number(DATA.capex[i]) || 0,
+    opex: Number(DATA.opex[i]) || 0
+}));
+
 
     /* Sort by MAC ascending */
     ds.sort((a, b) => a.mac - b.mac);
@@ -109,9 +110,14 @@ function draw() {
     }
 
     /* Linear MAC */
-    const vals = ds.map(d => d.mac);
-    let max = Math.max(...vals);
-    let min = Math.min(...vals);
+    
+const clean = ds.filter(d => Number.isFinite(d.mac));
+if (clean.length === 0) return;
+
+const vals = clean.map(d => d.mac);
+let max = Math.max(...vals);
+let min = Math.min(...vals);
+
 
     const PAD = (max - min) * 0.15;
     max += PAD;
