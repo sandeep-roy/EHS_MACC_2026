@@ -273,22 +273,22 @@ function draw() {
     const SCALE = 1.25;
 
     ds.forEach(d => {
-        d.macShaped =
-            Math.sign(d.mac) *
-            Math.pow(Math.abs(d.mac), SHAPE) *
-            SCALE;
+       d.macShaped = d.mac;
     });
 
     let shaped = ds.map(d => d.macShaped);
-    let max = Math.max(...shaped);
-    let min = Math.min(...shaped);
+    
+let max = Math.max(...ds.map(d => d.mac));
+let min = Math.min(...ds.map(d => d.mac));
 
-    const PAD = (max - min) * 0.18;
-    max += PAD;
-    min -= PAD;
+const PAD = (max - min) * 0.15; // 15% padding
 
-    const y = v =>
-        margin.top + (1 - (v - min) / (max - min)) * innerH;
+max += PAD;
+min -= PAD;
+
+const y = v =>
+    margin.top + (1 - (v - min) / (max - min)) * innerH;
+
 
     const y0 = y(0);
 
