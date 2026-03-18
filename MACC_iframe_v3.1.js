@@ -25,8 +25,10 @@
 
     constructor() {
       super();
+
       this._shadow = this.attachShadow({ mode:"open" });
       this._shadow.appendChild(template.content.cloneNode(true));
+
       this._frame = this._shadow.querySelector("#frame");
 
       this._data = {
@@ -78,12 +80,12 @@
       for (const r of rows) {
         P.push(r.dimension_0?.label ?? r.dimension_0?.id ?? "");
         CAT.push(r.dimension_cat_0?.label ?? "");
-        A.push(r.measure_abate_0?.raw ?? 0);
-        M.push(r.measure_mac_0?.raw ?? 0);
-        CUM.push(r.measure_cum_0?.raw ?? 0);
-        NPV.push(r.measure_npv_0?.raw ?? 0);
-        CAP.push(r.measure_capex_0?.raw ?? 0);
-        OPX.push(r.measure_opex_0?.raw ?? 0);
+        A.push(Number(r.measure_abate_0?.raw) || 0);
+        M.push(Number(r.measure_mac_0?.raw) || 0);
+        CUM.push(Number(r.measure_cum_0?.raw) || 0);
+        NPV.push(Number(r.measure_npv_0?.raw) || 0);
+        CAP.push(Number(r.measure_capex_0?.raw) || 0);
+        OPX.push(Number(r.measure_opex_0?.raw) || 0);
       }
 
       this._data = {
@@ -112,8 +114,8 @@
 
     _render() {
 
-      /* CHANGE THIS TO YOUR GITHUB PAGES URL */
-      this._frame.src = "https://sandeep-roy.github.io/EHS_MACC_2026/iframe.html";
+      /* Replace with your GitHub Pages URL */
+      this._frame.src = "https://<your-username>.github.io/<your-repo>/iframe.html";
 
       const sendData = () => {
         this._frame.contentWindow.postMessage({
