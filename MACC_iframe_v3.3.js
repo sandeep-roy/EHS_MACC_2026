@@ -60,12 +60,8 @@
       };
     }
 
-    connectedCallback() {
-      window.addEventListener("message", this._onMessage);
-    }
-    disconnectedCallback() {
-      window.removeEventListener("message", this._onMessage);
-    }
+    connectedCallback() { window.addEventListener("message", this._onMessage); }
+    disconnectedCallback() { window.removeEventListener("message", this._onMessage); }
 
     onCustomWidgetBeforeUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
     onCustomWidgetAfterUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
@@ -100,22 +96,27 @@
       this._render();
     }
 
+    /* Receive message from iframe */
     _onMessage(evt) {
       if (evt.source !== this._frame.contentWindow) return;
 
       if (evt.data?.type === "bar_click") {
-        this.dispatchEvent(new CustomEvent("onSelect", {
-          detail: { selection: evt.data.selection }
-        }));
+
+        /* Dispatch SAC Linked Analysis event */
+        this.dispatchEvent(
+          new CustomEvent("onSelect", {
+            detail: {
+              selectedMembers: evt.data.selectedMembers
+            }
+          })
+        );
       }
     }
 
     _render() {
 
-      /* Your correct GitHub Pages URL is now baked in */
       this._frame.src = "https://sandeep-roy.github.io/EHS_MACC_2026/iframe.html";
 
-      /* Retry-safe message delivery */
       let attempts = 0;
 
       const trySend = () => {
@@ -124,7 +125,6 @@
               if (attempts < 50) setTimeout(trySend, 100);
               return;
           }
-
           this._frame.contentWindow.postMessage({
               type:"update",
               payload:this._data
