@@ -17,14 +17,14 @@
             this._shadow.appendChild(template.content.cloneNode(true));
             this._frame = this._shadow.querySelector("#frame");
 
-            this._data = { project: [], abatement: [], mac: [] };
+            this._data = { project:[], abatement:[], mac:[] };
             this._onMessage = this._onMessage.bind(this);
         }
 
         getDataBindings() {
             return {
-                maccBinding: {
-                    feeds: [
+                maccBinding:{
+                    feeds:[
                         { id:"dimension", type:"dimension" },
                         { id:"measure_abate", type:"mainStructureMember" },
                         { id:"measure_mac", type:"mainStructureMember" }
@@ -35,13 +35,11 @@
 
         connectedCallback(){ window.addEventListener("message", this._onMessage); }
         disconnectedCallback(){ window.removeEventListener("message", this._onMessage); }
-
+        
         onCustomWidgetBeforeUpdate(p){ if (p.maccBinding) this._ingest(p.maccBinding); }
         onCustomWidgetAfterUpdate(p){ if (p.maccBinding) this._ingest(p.maccBinding); }
 
-        /* ---------------------------------------------------------
-           SAFE INGEST FOR SAC STRUCTURE
-        --------------------------------------------------------- */
+        /* INGEST SAC DATA PROPERLY */
         _ingest(binding){
             const rows = binding.data || [];
             const P=[], A=[], M=[];
@@ -63,14 +61,14 @@
         _onMessage(evt){
             if (evt.source !== this._frame.contentWindow) return;
             const msg = evt.data;
-            if (msg?.type === "bar_click") {
-                this.dispatchEvent(new CustomEvent("onSelect", { detail:{ label:msg.label }}));
+            if (msg?.type === "bar_click"){
+                this.dispatchEvent(new CustomEvent("onSelect", {
+                    detail:{ label:msg.label }
+                }));
             }
         }
 
-        /* ---------------------------------------------------------
-           RENDER MACC CHART (SVG)
-        --------------------------------------------------------- */
+        /* RENDER THE FINAL MACC CHART */
         _render(){
 
             const d = this._data;
@@ -82,9 +80,9 @@
 <style>
 body { margin:0; overflow:hidden; font-family:Arial; }
 #tooltip {
-    position:absolute; background:rgba(0,0,0,0.75); 
+    position:absolute; background:rgba(0,0,0,0.75);
     color:white; padding:6px 10px; border-radius:4px;
-    font-size:12px; display:none; pointer-events:none;
+    font-size:12px; pointer-events:none; display:none;
 }
 </style>
 </head>
@@ -116,53 +114,54 @@ function draw(){
         mac:DATA.mac[i]
     }));
 
-    /* Sort by MAC ascending (true MACC form) */
+    /* Sort by MAC */
     ds.sort((a,b)=> a.mac - b.mac);
 
     /* Cumulative abatement */
     let cum = 0;
-    ds.forEach(d=>{ d.x0 = cum; cum += d.abate; d.x1 = cum; });
+    ds.forEach(d=>{ d.x0=cum; cum+=d.abate; d.x1=cum; });
 
     if (cum <= 0) return;
 
     const x = v => margin.left + (v/cum)*innerW;
 
-    /* MAC color scale (original MAC values) */
-    const minMACorig = Math.min(...ds.map(d=>d.mac));
-    const maxMACorig = Math.max(...ds.map(d=>d.mac));
-
+    /* FIXED MAC COLOR BINS */
     function macColor(v){
-        const t = (v - minMACorig) / (maxMACorig - minMACorig);
-        if (t < 0.20) return "#2ca25f";   // deep green
-        if (t < 0.40) return "#a1d99b";   // light green
-        if (t < 0.60) return "#fee391";   // yellow
-        if (t < 0.80) return "#fb9a29";   // orange
-        return "#de2d26";                // red
+        if (v <= -1000) return "#238b45";  // deep green
+        if (v <= -500)  return "#74c476";  // medium green
+        if (v < 0)      return "#bae4b3";  // light green
+        if (v <= 500)   return "#fee391";  // yellow
+        if (v <= 1500)  return "#fdae6b";  // orange
+        if (v <= 3000)  return "#fd8d3c";  // orange-red
+        return "#e31a1c";                  // deep red
     }
 
     /* MAC shaping (0.7 exponent) */
     const SHAPE = 0.7;
     const SCALE = 1.25;
     ds.forEach(d=>{
-        d.macShaped = Math.sign(d.mac) * Math.pow(Math.abs(d.mac), SHAPE) * SCALE;
+        d.macShaped = Math.sign(d.mac) *
+                      Math.pow(Math.abs(d.mac), SHAPE) *
+                      SCALE;
     });
 
-    /* Y-scale range (based on shaped MAC) */
+    /* Y-scale */
     let shapedVals = ds.map(d=>d.macShaped);
     let maxMAC = Math.max(...shapedVals);
     let minMAC = Math.min(...shapedVals);
 
-    const PAD = (maxMAC-minMAC)*0.18;
+    const PAD = (maxMAC - minMAC) * 0.18;
     maxMAC += PAD;
     minMAC -= PAD;
+
     if (maxMAC === minMAC) maxMAC += 1;
 
-    const y = v => margin.top + (1 - (v-minMAC)/(maxMAC-minMAC)) * innerH;
+    const y = v =>
+        margin.top + (1 - (v-minMAC)/(maxMAC-minMAC)) * innerH;
+
     const y0 = y(0);
 
-    /* ----------------------------
-       ZERO LINE (dotted)
-    ---------------------------- */
+    /* Zero Line */
     const zero = document.createElementNS(svg.namespaceURI,"line");
     zero.setAttribute("x1", margin.left);
     zero.setAttribute("x2", W-margin.right);
@@ -173,9 +172,7 @@ function draw(){
     zero.setAttribute("stroke-width","1.5");
     svg.appendChild(zero);
 
-    /* ----------------------------
-       TARGET LINE (60k)
-    ---------------------------- */
+    /* Target Line */
     const TARGET = 60000;
     if (TARGET < cum){
         const tx = x(TARGET);
@@ -184,38 +181,31 @@ function draw(){
         tline.setAttribute("x2", tx);
         tline.setAttribute("y1", margin.top);
         tline.setAttribute("y2", H-margin.bottom);
-        tline.setAttribute("stroke", "black");
+        tline.setAttribute("stroke","black");
         tline.setAttribute("stroke-dasharray","6,6");
         tline.setAttribute("stroke-width","2");
         svg.appendChild(tline);
 
-        const label = document.createElementNS(svg.namespaceURI,"text");
-        label.textContent = "Target: 60,000 tCO₂e";
-        label.setAttribute("x", tx + 5);
-        label.setAttribute("y", margin.top - 12);
-        label.setAttribute("font-size","12");
-        svg.appendChild(label);
+        const lbl = document.createElementNS(svg.namespaceURI,"text");
+        lbl.textContent = "Target: 60,000 tCO₂e";
+        lbl.setAttribute("x", tx + 5);
+        lbl.setAttribute("y", margin.top - 12);
+        lbl.setAttribute("font-size", "12");
+        svg.appendChild(lbl);
     }
 
-    /* ----------------------------
-       BARS (WITH MAC COLOR SCALE)
-    ---------------------------- */
+    /* BARS (WITH FIXED MAC COLOR BINS) */
     ds.forEach(d=>{
-
         const rect = document.createElementNS(svg.namespaceURI,"rect");
 
-        const bw = Math.max(10, x(d.abate) - x(0));
-
+        const bw = Math.max(10, x(d.abate)-x(0));
         rect.setAttribute("x", x(d.x0));
         rect.setAttribute("width", bw);
-        rect.setAttribute("y", d.macShaped>=0 ? y(d.macShaped): y0);
-        rect.setAttribute("height", Math.abs(y(d.macShaped)-y0));
+        rect.setAttribute("y", d.macShaped>=0 ? y(d.macShaped) : y0);
+        rect.setAttribute("height", Math.abs(y(d.macShaped) - y0));
 
-        /* MAC‑based color scale */
         rect.setAttribute("fill", macColor(d.mac));
-
-        /* Border lines */
-        rect.setAttribute("stroke", "#222");
+        rect.setAttribute("stroke", "#333");
         rect.setAttribute("stroke-width", "1.3");
 
         rect.style.cursor="pointer";
@@ -223,30 +213,26 @@ function draw(){
         rect.addEventListener("mouseover",evt=>{
             tip.style.display="block";
             tip.innerHTML =
-               "<b>"+d.name+"</b><br>"+
-               "MAC: "+d.mac+"<br>"+
-               "Abatement: "+d.abate;
+                "<b>"+d.name+"</b><br>"+
+                "MAC: "+d.mac+"<br>"+
+                "Abatement: "+d.abate;
         });
-
         rect.addEventListener("mousemove",evt=>{
             tip.style.left = evt.pageX+10+"px";
             tip.style.top  = evt.pageY-20+"px";
         });
-
         rect.addEventListener("mouseout",()=> tip.style.display="none");
 
         rect.addEventListener("click",()=>{
-            parent.postMessage({ type:"bar_click", label:d.name },"*");
+            parent.postMessage({ type:"bar_click", label:d.name }, "*");
         });
 
         svg.appendChild(rect);
     });
 
-    /* ----------------------------
-       AXIS LABELS
-    ---------------------------- */
+    /* AXIS LABELS */
     const xlab = document.createElementNS(svg.namespaceURI,"text");
-    xlab.textContent="Total Abatement (tCO₂e)";
+    xlab.textContent = "Total Abatement (tCO₂e)";
     xlab.setAttribute("x", W/2);
     xlab.setAttribute("y", H - 30);
     xlab.setAttribute("text-anchor","middle");
@@ -254,14 +240,13 @@ function draw(){
     svg.appendChild(xlab);
 
     const ylab = document.createElementNS(svg.namespaceURI,"text");
-    ylab.textContent="MAC (EUR/tCO₂e)";
+    ylab.textContent = "MAC (EUR/tCO₂e)";
     ylab.setAttribute("transform","rotate(-90)");
     ylab.setAttribute("x", -H/2);
     ylab.setAttribute("y", 40);
     ylab.setAttribute("text-anchor","middle");
     ylab.setAttribute("font-size","16");
     svg.appendChild(ylab);
-
 }
 
 window.addEventListener("resize", draw);
@@ -272,7 +257,7 @@ draw();
 </html>
 `;
 
-            const blob = new Blob([html], { type:"text/html" });
+            const blob = new Blob([html], {type:"text/html"});
             this._frame.src = URL.createObjectURL(blob);
         }
     }
