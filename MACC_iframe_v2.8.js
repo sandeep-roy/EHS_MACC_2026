@@ -221,10 +221,10 @@ function draw() {
     svg.innerHTML = "";
 
     const margin = {
-        top: 50,
-        right: 50,
-        bottom: 80,
-        left: 120
+        top: 60,
+        right: 60,
+        bottom: 140,
+        left: 180
     };
 
     const innerW = W - margin.left - margin.right;
@@ -373,7 +373,7 @@ const y = v =>
     const xlab = document.createElementNS(svg.namespaceURI, "text");
     xlab.textContent = "Total Abatement (tCO₂e)";
     xlab.setAttribute("x", W/2);
-    xlab.setAttribute("y", H - 20);
+    xlab.setAttribute("y", H - 50);
     xlab.setAttribute("text-anchor", "middle");
     xlab.setAttribute("font-size", "16");
     svg.appendChild(xlab);
@@ -382,7 +382,7 @@ const y = v =>
     ylab.textContent = "MAC (EUR/tCO₂e)";
     ylab.setAttribute("transform", "rotate(-90)");
     ylab.setAttribute("x", -H/2);
-    ylab.setAttribute("y", 40);
+    ylab.setAttribute("y", 70);
     ylab.setAttribute("text-anchor", "middle");
     ylab.setAttribute("font-size", "16");
     svg.appendChild(ylab);
