@@ -4,18 +4,18 @@
   template.innerHTML = `
       <style>
         :host {
-            display:block;
-            width:100%;
-            height:100%;
-            position:relative;
+            display: block;
+            width: 100%;
+            height: 100%;
+            position: relative;
         }
         iframe {
-            position:absolute;
-            top:0;
-            left:0;
-            width:100%;
-            height:100%;
-            border:none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
         }
       </style>
       <iframe id="frame"></iframe>
@@ -25,10 +25,8 @@
 
     constructor() {
       super();
-
-      this._shadow = this.attachShadow({ mode:"open" });
+      this._shadow = this.attachShadow({ mode: "open" });
       this._shadow.appendChild(template.content.cloneNode(true));
-
       this._frame = this._shadow.querySelector("#frame");
 
       this._data = {
@@ -114,19 +112,17 @@
 
     _render() {
 
-      /* Replace with your GitHub Pages URL */
       this._frame.src = "https://<your-username>.github.io/<your-repo>/iframe.html";
 
-      const sendData = () => {
+      const send = () => {
         this._frame.contentWindow.postMessage({
-          type: "update",
-          payload: this._data
+          type:"update",
+          payload:this._data
         }, "*");
       };
 
-      this._frame.onload = () => setTimeout(sendData, 50);
+      this._frame.onload = () => setTimeout(send, 60);
     }
-
   }
 
   customElements.define("variable-width-macc", VariableWidthMACC);
