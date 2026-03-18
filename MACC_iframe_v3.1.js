@@ -4,18 +4,18 @@
   template.innerHTML = `
       <style>
         :host {
-            display: block;
-            width: 100%;
-            height: 100%;
-            position: relative;
+            display:block;
+            width:100%;
+            height:100%;
+            position:relative;
         }
         iframe {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border: none;
+            position:absolute;
+            top:0;
+            left:0;
+            width:100%;
+            height:100%;
+            border:none;
         }
       </style>
       <iframe id="frame"></iframe>
@@ -27,6 +27,7 @@
       super();
       this._shadow = this.attachShadow({ mode: "open" });
       this._shadow.appendChild(template.content.cloneNode(true));
+
       this._frame = this._shadow.querySelector("#frame");
 
       this._data = {
@@ -43,6 +44,7 @@
       this._onMessage = this._onMessage.bind(this);
     }
 
+    /* SAC bindings */
     getDataBindings() {
       return {
         maccBinding: {
@@ -60,19 +62,15 @@
       };
     }
 
-    connectedCallback() {
-      window.addEventListener("message", this._onMessage);
-    }
-
-    disconnectedCallback() {
-      window.removeEventListener("message", this._onMessage);
-    }
+    connectedCallback(){ window.addEventListener("message", this._onMessage); }
+    disconnectedCallback(){ window.removeEventListener("message", this._onMessage); }
 
     onCustomWidgetBeforeUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
     onCustomWidgetAfterUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
 
     _ingest(binding) {
       const rows = binding.data || [];
+
       const P=[], CAT=[], A=[], M=[], CUM=[], NPV=[], CAP=[], OPX=[];
 
       for (const r of rows) {
@@ -100,29 +98,32 @@
       this._render();
     }
 
+    /* Linked analysis + selection callback */
     _onMessage(evt) {
       if (evt.source !== this._frame.contentWindow) return;
 
       if (evt.data?.type === "bar_click") {
         this.dispatchEvent(new CustomEvent("onSelect", {
-          detail: { label: evt.data.label }
+          detail: { selection: evt.data.selection }
         }));
       }
     }
 
     _render() {
 
+      /* REPLACE WITH YOUR hosted iframe.html URL */
       this._frame.src = "https://<your-username>.github.io/<your-repo>/iframe.html";
 
-      const send = () => {
+      const sendData = () => {
         this._frame.contentWindow.postMessage({
           type:"update",
           payload:this._data
         }, "*");
       };
 
-      this._frame.onload = () => setTimeout(send, 60);
+      this._frame.onload = () => setTimeout(sendData, 60);
     }
+
   }
 
   customElements.define("variable-width-macc", VariableWidthMACC);
