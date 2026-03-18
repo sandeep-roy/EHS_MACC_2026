@@ -12,7 +12,6 @@
       overflow:hidden;
       font-family:Arial;
   }
-
   #svg {
       position:absolute;
       top:0;
@@ -20,7 +19,6 @@
       width:100%;
       height:100%;
   }
-
   #tooltip {
       position:absolute;
       background:rgba(0,0,0,0.85);
@@ -32,20 +30,57 @@
       display:none;
       max-width:350px;
       line-height:1.4em;
-      z-index:10;
+      z-index:100;
+  }
+
+  /* Zoom Controls */
+  #zoom-controls {
+      position:absolute;
+      top:10px;
+      right:10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      z-index:150;
+  }
+
+  #zoom-controls button {
+      background:#ffffff;
+      border:1px solid #666;
+      border-radius:4px;
+      width:32px;
+      height:32px;
+      cursor:pointer;
+      font-size:18px;
+      font-weight:bold;
+  }
+  #zoom-controls button:hover {
+      background:#eaeaea;
   }
 </style>
 </head>
 
 <body>
 
+<!-- Zoom Buttons -->
+<div id="zoom-controls">
+  <button id="zoom-in">＋</button>
+  <button id="zoom-out">－</button>
+  <button id="zoom-reset">⟲</button>
+</div>
+
 <div id="tooltip"></div>
 <svg id="svg"></svg>
 
 <script>
 let DATA = null;
+const svg = document.getElementById("svg");
+const tip = document.getElementById("tooltip");
 
-/* Receive data from parent SAC widget */
+/* Multi-select state */
+let selected = new Set();
+
+/* Receive dataset from SAC widget */
 window.addEventListener("message", evt => {
     if (evt.data?.type === "update") {
         DATA = evt.data.payload;
@@ -53,14 +88,11 @@ window.addEventListener("message", evt => {
     }
 });
 
-const svg = document.getElementById("svg");
-const tip = document.getElementById("tooltip");
-
-
 /* ============================================================
-   DRAW FUNCTION (v3.0)
+   DRAW FUNCTION (v3.1)
 ============================================================ */
 function draw() {
+
     if (!DATA) return;
 
     const W = svg.clientWidth  || 800;
@@ -69,6 +101,7 @@ function draw() {
     svg.innerHTML = '<g id="viewport"></g>';
     const root = svg.querySelector("#viewport");
 
+    /* Layout margins */
     const margin = {
         top: 60,
         right: 60,
@@ -79,7 +112,7 @@ function draw() {
     const innerW = W - margin.left - margin.right;
     const innerH = H - margin.top - margin.bottom;
 
-    /* Data Sanitization */
+    /* Sanitize dataset */
     const ds = DATA.project.map((p, i) => ({
         name: p,
         cat: DATA.category[i],
@@ -92,12 +125,13 @@ function draw() {
     }));
 
     const clean = ds.filter(d =>
-        Number.isFinite(d.mac) && Number.isFinite(d.abate)
+        Number.isFinite(d.mac) &&
+        Number.isFinite(d.abate)
     );
 
     if (clean.length === 0) return;
 
-    clean.sort((a,b)=> a.mac - b.mac);
+    clean.sort((a, b) => a.mac - b.mac);
 
     let cum = 0;
     clean.forEach(d => {
@@ -105,8 +139,6 @@ function draw() {
         cum += d.abate;
         d.x1 = cum;
     });
-
-    if (cum <= 0) return;
 
     const x = v => margin.left + (v / cum) * innerW;
 
@@ -120,6 +152,7 @@ function draw() {
         return "#e31a1c";
     }
 
+    /* Y-scale */
     const vals = clean.map(d => d.mac);
     let max = Math.max(...vals);
     let min = Math.min(...vals);
@@ -133,31 +166,31 @@ function draw() {
 
     const y0 = y(0);
 
-    /* Zero Line */
-    const zero = document.createElementNS(svg.namespaceURI,"line");
-    zero.setAttribute("x1", margin.left);
-    zero.setAttribute("x2", W-margin.right);
-    zero.setAttribute("y1", y0);
-    zero.setAttribute("y2", y0);
-    zero.setAttribute("stroke","#0044aa");
-    zero.setAttribute("stroke-dasharray","4,4");
-    zero.setAttribute("stroke-width","1.5");
-    root.appendChild(zero);
+    /* Zero line */
+    const zl = document.createElementNS(svg.namespaceURI,"line");
+    zl.setAttribute("x1", margin.left);
+    zl.setAttribute("x2", W - margin.right);
+    zl.setAttribute("y1", y0);
+    zl.setAttribute("y2", y0);
+    zl.setAttribute("stroke","#0044aa");
+    zl.setAttribute("stroke-dasharray","4,4");
+    zl.setAttribute("stroke-width","1.5");
+    root.appendChild(zl);
 
-    /* Target Line */
+    /* Target line */
     const TARGET = 60000;
-    if (TARGET < cum){
+    if (TARGET < cum) {
         const tx = x(TARGET);
 
-        const tline = document.createElementNS(svg.namespaceURI,"line");
-        tline.setAttribute("x1", tx);
-        tline.setAttribute("x2", tx);
-        tline.setAttribute("y1", margin.top);
-        tline.setAttribute("y2", H-margin.bottom);
-        tline.setAttribute("stroke","black");
-        tline.setAttribute("stroke-dasharray","6,6");
-        tline.setAttribute("stroke-width","2");
-        root.appendChild(tline);
+        const tl = document.createElementNS(svg.namespaceURI,"line");
+        tl.setAttribute("x1", tx);
+        tl.setAttribute("x2", tx);
+        tl.setAttribute("y1", margin.top);
+        tl.setAttribute("y2", H - margin.bottom);
+        tl.setAttribute("stroke", "black");
+        tl.setAttribute("stroke-dasharray", "6,6");
+        tl.setAttribute("stroke-width", "2");
+        root.appendChild(tl);
 
         const lbl = document.createElementNS(svg.namespaceURI,"text");
         lbl.textContent = "Target: 60,000 tCO₂e";
@@ -167,23 +200,58 @@ function draw() {
         root.appendChild(lbl);
     }
 
+    /* Multi-select toggle */
+    function toggleSelect(name, rect){
+        if (selected.has(name)) {
+            selected.delete(name);
+            rect.setAttribute("stroke","#333");
+            rect.setAttribute("stroke-width","1.2");
+        } else {
+            selected.add(name);
+            rect.setAttribute("stroke","black");
+            rect.setAttribute("stroke-width","3");
+        }
+
+        parent.postMessage({
+            type: "bar_click",
+            selection: Array.from(selected)
+        }, "*");
+    }
+
     /* Bars */
     clean.forEach(d => {
         const rect = document.createElementNS(svg.namespaceURI,"rect");
 
-        const bw = Math.max(8, x(d.abate)-x(0));
+        const bw = Math.max(8, x(d.abate) - x(0));
         rect.setAttribute("x", x(d.x0));
         rect.setAttribute("width", bw);
         rect.setAttribute("y", d.mac >= 0 ? y(d.mac) : y0);
         rect.setAttribute("height", Math.abs(y(d.mac) - y0));
         rect.setAttribute("fill", macColor(d.mac));
-        rect.setAttribute("stroke", "#333");
-        rect.setAttribute("stroke-width", "1.2");
-
+        rect.setAttribute("stroke", selected.has(d.name) ? "black" : "#333");
+        rect.setAttribute("stroke-width", selected.has(d.name) ? "3" : "1.2");
         rect.style.cursor = "pointer";
 
-        rect.addEventListener("mouseover", evt => {
-            tip.style.display = "block";
+        /* Tooltip */
+        rect.addEventListener("mouseover", () => { tip.style.display = "block"; });
+        rect.addEventListener("mouseout", () => { tip.style.display = "none"; });
+
+        rect.addEventListener("mousemove", evt => {
+            let x = evt.pageX + 15;
+            let y = evt.pageY - 20;
+
+            const tW = tip.offsetWidth;
+
+            if (x + tW > window.innerWidth - 10) {
+                x = evt.pageX - tW - 15;
+            }
+            if (y < 10){
+                y = evt.pageY + 20;
+            }
+
+            tip.style.left = x + "px";
+            tip.style.top = y + "px";
+
             tip.innerHTML =
                 "<b>" + d.name + "</b><br>" +
                 "Category: " + d.cat + "<br>" +
@@ -195,40 +263,16 @@ function draw() {
                 "Opex: " + d.opex;
         });
 
-        /* Smart tooltip placement */
-        rect.addEventListener("mousemove", evt => {
-            let x = evt.pageX + 15;
-            let y = evt.pageY - 20;
-
-            const tipWidth = tip.offsetWidth;
-            const tipHeight = tip.offsetHeight;
-
-            if (x + tipWidth > window.innerWidth - 10) {
-                x = evt.pageX - tipWidth - 15;
-            }
-
-            if (y < 10) {
-                y = evt.pageY + 20;
-            }
-
-            tip.style.left = x + "px";
-            tip.style.top = y + "px";
-        });
-
-        rect.addEventListener("mouseout", () => tip.style.display = "none");
-
-        rect.addEventListener("click", () => {
-            parent.postMessage({ type:"bar_click", label:d.name }, "*");
-        });
+        rect.addEventListener("click", () => toggleSelect(d.name, rect));
 
         root.appendChild(rect);
     });
 
-    /* Axis Labels */
+    /* Axis labels */
     const xlab = document.createElementNS(svg.namespaceURI,"text");
     xlab.textContent = "Total Abatement (tCO₂e)";
     xlab.setAttribute("x", W/2);
-    xlab.setAttribute("y", H-50);
+    xlab.setAttribute("y", H - 50);
     xlab.setAttribute("text-anchor","middle");
     xlab.setAttribute("font-size","18");
     root.appendChild(xlab);
@@ -243,25 +287,24 @@ function draw() {
     root.appendChild(ylab);
 }
 
-
 /* ============================================================
-   ZOOM + PAN (v3.0)
+   ZOOM & PAN (v3.1)
 ============================================================ */
-
 let scale = 1;
 let translateX = 0;
 let isDragging = false;
 let startX = 0;
 
-svg.addEventListener("wheel", evt => {
-    evt.preventDefault();
-
-    const intensity = 0.1;
-    scale += evt.deltaY < 0 ? intensity : -intensity;
-    scale = Math.min(Math.max(scale, 0.3), 5);
-
+function applyTransform(){
     const root = svg.querySelector("#viewport");
     root.setAttribute("transform", `translate(${translateX},0) scale(${scale})`);
+}
+
+svg.addEventListener("wheel", evt => {
+    evt.preventDefault();
+    scale += evt.deltaY < 0 ? 0.15 : -0.15;
+    scale = Math.min(Math.max(scale, 0.3), 5);
+    applyTransform();
 });
 
 svg.addEventListener("mousedown", evt => {
@@ -272,16 +315,31 @@ svg.addEventListener("mousedown", evt => {
 svg.addEventListener("mousemove", evt => {
     if (isDragging) {
         translateX = evt.clientX - startX;
-        const root = svg.querySelector("#viewport");
-        root.setAttribute("transform", `translate(${translateX},0) scale(${scale})`);
+        applyTransform();
     }
 });
 
-svg.addEventListener("mouseup", () => isDragging = false);
-svg.addEventListener("mouseleave", () => isDragging = false);
+svg.addEventListener("mouseup",   () => isDragging=false);
+svg.addEventListener("mouseleave",() => isDragging=false);
 
+/* Zoom Buttons */
+document.getElementById("zoom-in").onclick = () => {
+    scale = Math.min(scale + 0.2, 5);
+    applyTransform();
+};
+document.getElementById("zoom-out").onclick = () => {
+    scale = Math.max(scale - 0.2, 0.3);
+    applyTransform();
+};
+document.getElementById("zoom-reset").onclick = () => {
+    scale = 1;
+    translateX = 0;
+    applyTransform();
+};
+
+/* Auto redraw */
 window.addEventListener("resize", draw);
-</script>
 
+</script>
 </body>
 </html>
