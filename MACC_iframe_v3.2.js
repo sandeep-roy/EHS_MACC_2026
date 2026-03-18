@@ -25,9 +25,8 @@
 
     constructor() {
       super();
-      this._shadow = this.attachShadow({ mode: "open" });
+      this._shadow = this.attachShadow({ mode:"open" });
       this._shadow.appendChild(template.content.cloneNode(true));
-
       this._frame = this._shadow.querySelector("#frame");
 
       this._data = {
@@ -44,7 +43,6 @@
       this._onMessage = this._onMessage.bind(this);
     }
 
-    /* SAC bindings */
     getDataBindings() {
       return {
         maccBinding: {
@@ -62,8 +60,12 @@
       };
     }
 
-    connectedCallback(){ window.addEventListener("message", this._onMessage); }
-    disconnectedCallback(){ window.removeEventListener("message", this._onMessage); }
+    connectedCallback() {
+      window.addEventListener("message", this._onMessage);
+    }
+    disconnectedCallback() {
+      window.removeEventListener("message", this._onMessage);
+    }
 
     onCustomWidgetBeforeUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
     onCustomWidgetAfterUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
@@ -98,7 +100,6 @@
       this._render();
     }
 
-    /* Linked analysis + selection callback */
     _onMessage(evt) {
       if (evt.source !== this._frame.contentWindow) return;
 
@@ -111,19 +112,30 @@
 
     _render() {
 
-      /* REPLACE WITH YOUR hosted iframe.html URL */
-      this._frame.src = "https://<your-username>.github.io/<your-repo>/iframe.html";
+      /* Your correct GitHub Pages URL is now baked in */
+      this._frame.src = "https://sandeep-roy.github.io/EHS_MACC_2026/iframe.html";
 
-      const sendData = () => {
-        this._frame.contentWindow.postMessage({
-          type:"update",
-          payload:this._data
-        }, "*");
+      /* Retry-safe message delivery */
+      let attempts = 0;
+
+      const trySend = () => {
+          if (!this._frame.contentWindow) {
+              attempts++;
+              if (attempts < 50) setTimeout(trySend, 100);
+              return;
+          }
+
+          this._frame.contentWindow.postMessage({
+              type:"update",
+              payload:this._data
+          }, "*");
       };
 
-      this._frame.onload = () => setTimeout(sendData, 60);
+      this._frame.onload = () => {
+          attempts = 0;
+          trySend();
+      };
     }
-
   }
 
   customElements.define("variable-width-macc", VariableWidthMACC);
