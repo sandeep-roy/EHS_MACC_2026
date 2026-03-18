@@ -1,13 +1,26 @@
 (function () {
 
   /* ------------------------------------------------------------
-     TEMPLATE WITH IFRAME
+     TEMPLATE WITH ABSOLUTE-POSITIONED IFRAME
+     (Fixes SAC layout and prevents squeezed chart)
   ------------------------------------------------------------ */
   const template = document.createElement("template");
   template.innerHTML = `
       <style>
-        :host { display:block; width:100%; height:100%; }
-        iframe { width:100%; height:100%; border:none; }
+        :host {
+            display:block;
+            width:100%;
+            height:100%;
+            position:relative;
+        }
+        iframe {
+            position:absolute;
+            top:0;
+            left:0;
+            width:100%;
+            height:100%;
+            border:none;
+        }
       </style>
       <iframe id="frame"></iframe>
   `;
@@ -17,11 +30,12 @@
     constructor() {
       super();
 
-      this._shadow = this.attachShadow({ mode: "open" });
+      this._shadow = this.attachShadow({ mode:"open" });
       this._shadow.appendChild(template.content.cloneNode(true));
 
       this._frame = this._shadow.querySelector("#frame");
 
+      /* Full dataset */
       this._data = {
         project: [],
         category: [],
@@ -37,20 +51,20 @@
     }
 
     /* ------------------------------------------------------------
-       BINDINGS
+       DATA BINDINGS FOR SAC
     ------------------------------------------------------------ */
     getDataBindings() {
       return {
         maccBinding: {
           feeds: [
-            { id: "dimension", type:"dimension" },
-            { id: "dimension_cat", type:"dimension" },
-            { id: "measure_abate", type:"mainStructureMember" },
-            { id: "measure_mac", type:"mainStructureMember" },
-            { id: "measure_cum", type:"mainStructureMember" },
-            { id: "measure_npv", type:"mainStructureMember" },
-            { id: "measure_capex", type:"mainStructureMember" },
-            { id: "measure_opex", type:"mainStructureMember" }
+            { id:"dimension",      type:"dimension" },
+            { id:"dimension_cat",  type:"dimension" },
+            { id:"measure_abate",  type:"mainStructureMember" },
+            { id:"measure_mac",    type:"mainStructureMember" },
+            { id:"measure_cum",    type:"mainStructureMember" },
+            { id:"measure_npv",    type:"mainStructureMember" },
+            { id:"measure_capex",  type:"mainStructureMember" },
+            { id:"measure_opex",   type:"mainStructureMember" }
           ]
         }
       };
@@ -64,29 +78,32 @@
       window.removeEventListener("message", this._onMessage);
     }
 
-    onCustomWidgetBeforeUpdate(p) { if (p.maccBinding) this._ingest(p.maccBinding); }
-    onCustomWidgetAfterUpdate(p)  { if (p.maccBinding) this._ingest(p.maccBinding); }
+    onCustomWidgetBeforeUpdate(p) {
+      if (p.maccBinding) this._ingest(p.maccBinding);
+    }
+    onCustomWidgetAfterUpdate(p) {
+      if (p.maccBinding) this._ingest(p.maccBinding);
+    }
 
     /* ------------------------------------------------------------
-       INGEST DATA
+       INGEST DATA FROM SAC
     ------------------------------------------------------------ */
     _ingest(binding) {
-
       const rows = binding.data || [];
 
-      const P=[], CAT=[], A=[], M=[], CUM=[], NPV=[], CAPEX=[], OPEX=[];
+      const P=[], CAT=[], A=[], M=[], CUM=[], NPV=[], CAP=[], OPX=[];
 
       for (const r of rows) {
 
         const project  = r.dimension_0?.label ?? r.dimension_0?.id ?? "";
         const category = r.dimension_cat_0?.label ?? "";
 
-        const ab    = r.measure_abate_0?.raw ?? 0;
-        const mac   = r.measure_mac_0?.raw ?? 0;
-        const cum   = r.measure_cum_0?.raw ?? 0;
-        const npv   = r.measure_npv_0?.raw ?? 0;
-        const cap   = r.measure_capex_0?.raw ?? 0;
-        const opex  = r.measure_opex_0?.raw ?? 0;
+        const ab       = r.measure_abate_0?.raw ?? 0;
+        const mac      = r.measure_mac_0?.raw ?? 0;
+        const cum      = r.measure_cum_0?.raw ?? 0;
+        const npv      = r.measure_npv_0?.raw ?? 0;
+        const capex    = r.measure_capex_0?.raw ?? 0;
+        const opex     = r.measure_opex_0?.raw ?? 0;
 
         P.push(project);
         CAT.push(category);
@@ -94,8 +111,8 @@
         M.push(mac);
         CUM.push(cum);
         NPV.push(npv);
-        CAPEX.push(cap);
-        OPEX.push(opex);
+        CAP.push(capex);
+        OPX.push(opex);
       }
 
       this._data = {
@@ -105,15 +122,15 @@
         mac: M,
         cumulative: CUM,
         npv: NPV,
-        capex: CAPEX,
-        opex: OPEX
+        capex: CAP,
+        opex: OPX
       };
 
       this._render();
     }
 
     /* ------------------------------------------------------------
-       RECEIVE EVENT FROM IFRAME
+       HANDLE CLICKS FROM IFRAME
     ------------------------------------------------------------ */
     _onMessage(evt) {
       if (evt.source !== this._frame.contentWindow) return;
@@ -128,7 +145,7 @@
     }
 
     /* ------------------------------------------------------------
-       RENDER IFRAME HTML PAGE USING BLOB (no external file needed)
+       RENDER — Build the full HTML renderer inside iframe
     ------------------------------------------------------------ */
     _render() {
 
@@ -137,8 +154,25 @@
 <html>
 <head>
 <meta charset="UTF-8">
+
 <style>
-  body { margin:0; overflow:hidden; font-family:Arial; }
+  html, body {
+      width:100%;
+      height:100%;
+      margin:0;
+      padding:0;
+      overflow:hidden;
+      font-family:Arial;
+  }
+
+  #svg {
+      position:absolute;
+      top:0;
+      left:0;
+      width:100%;
+      height:100%;
+  }
+
   #tooltip {
       position:absolute;
       background:rgba(0,0,0,0.75);
@@ -149,18 +183,22 @@
       pointer-events:none;
       display:none;
       z-index:10;
+      max-width:300px;
+      line-height:1.4em;
   }
 </style>
-</head>
 
+</head>
 <body>
+
 <div id="tooltip"></div>
-<svg id="svg" width="100%" height="100%"></svg>
+<svg id="svg"></svg>
 
 <script>
+
 let DATA = null;
 
-/* Receive dataset from parent widget */
+/* Receive data from SAC */
 window.addEventListener("message", evt => {
     if (evt.data?.type === "update") {
         DATA = evt.data.payload;
@@ -171,22 +209,29 @@ window.addEventListener("message", evt => {
 const svg = document.getElementById("svg");
 const tip = document.getElementById("tooltip");
 
-/* ------------------------------------------------------------
-   DRAW MACC CHART
------------------------------------------------------------- */
-function draw(){
+/* ============================================================
+   MAIN DRAW FUNCTION
+============================================================ */
+function draw() {
     if (!DATA) return;
 
-    const W = svg.clientWidth;
-    const H = svg.clientHeight;
+    const W = svg.clientWidth  || 800;
+    const H = svg.clientHeight || 600;
+
     svg.innerHTML = "";
 
-    const margin = { top: 50, right: 50, bottom: 90, left: 120 };
+    const margin = {
+        top: 50,
+        right: 50,
+        bottom: 80,
+        left: 120
+    };
+
     const innerW = W - margin.left - margin.right;
     const innerH = H - margin.top - margin.bottom;
 
     /* Build dataset */
-    const ds = DATA.project.map((p,i)=>({
+    const ds = DATA.project.map((p, i) => ({
         name: p,
         cat: DATA.category[i],
         abate: DATA.abatement[i],
@@ -198,11 +243,11 @@ function draw(){
     }));
 
     /* Sort by MAC */
-    ds.sort((a,b)=> a.mac - b.mac);
+    ds.sort((a, b) => a.mac - b.mac);
 
     /* Compute cumulative abatement */
     let cum = 0;
-    ds.forEach(d=>{
+    ds.forEach(d => {
         d.x0 = cum;
         cum += d.abate;
         d.x1 = cum;
@@ -210,10 +255,10 @@ function draw(){
 
     if (cum <= 0) return;
 
-    const x = v => margin.left + (v/cum) * innerW;
+    const x = v => margin.left + (v / cum) * innerW;
 
-    /* MAC Color Bins */
-    function macColor(v){
+    /* MAC color bins (kept from your original renderer) */
+    function macColor(v) {
         if (v <= -1000) return "#238b45";
         if (v <= -500)  return "#74c476";
         if (v < 0)      return "#bae4b3";
@@ -223,64 +268,66 @@ function draw(){
         return "#e31a1c";
     }
 
-    /* MAC shaping */
+    /* C1: Hybrid shape-first-then-scale (your chosen option) */
     const SHAPE = 0.7;
     const SCALE = 1.25;
 
-    ds.forEach(d=>{
+    ds.forEach(d => {
         d.macShaped =
             Math.sign(d.mac) *
             Math.pow(Math.abs(d.mac), SHAPE) *
             SCALE;
     });
 
-    /* Y Scale */
-    let vals = ds.map(d=>d.macShaped);
-    let max = Math.max(...vals), min = Math.min(...vals);
+    let shaped = ds.map(d => d.macShaped);
+    let max = Math.max(...shaped);
+    let min = Math.min(...shaped);
+
     const PAD = (max - min) * 0.18;
-    max += PAD; min -= PAD;
-    const y = val =>
-        margin.top + (1 - (val - min) / (max - min)) * innerH;
+    max += PAD;
+    min -= PAD;
+
+    const y = v =>
+        margin.top + (1 - (v - min) / (max - min)) * innerH;
 
     const y0 = y(0);
 
-    /* Zero Line */
-    const zero = document.createElementNS(svg.namespaceURI,"line");
+    /* Zero line */
+    const zero = document.createElementNS(svg.namespaceURI, "line");
     zero.setAttribute("x1", margin.left);
-    zero.setAttribute("x2", W-margin.right);
+    zero.setAttribute("x2", W - margin.right);
     zero.setAttribute("y1", y0);
     zero.setAttribute("y2", y0);
-    zero.setAttribute("stroke","#0044aa");
-    zero.setAttribute("stroke-dasharray","4,4");
-    zero.setAttribute("stroke-width","1.5");
+    zero.setAttribute("stroke", "#0044aa");
+    zero.setAttribute("stroke-dasharray", "4,4");
+    zero.setAttribute("stroke-width", "1.5");
     svg.appendChild(zero);
 
     /* Target line */
     const TARGET = 60000;
     if (TARGET < cum) {
         const tx = x(TARGET);
+        const tl = document.createElementNS(svg.namespaceURI, "line");
+        tl.setAttribute("x1", tx);
+        tl.setAttribute("x2", tx);
+        tl.setAttribute("y1", margin.top);
+        tl.setAttribute("y2", H - margin.bottom);
+        tl.setAttribute("stroke", "black");
+        tl.setAttribute("stroke-dasharray", "6,6");
+        tl.setAttribute("stroke-width", "2");
+        svg.appendChild(tl);
 
-        const tline = document.createElementNS(svg.namespaceURI,"line");
-        tline.setAttribute("x1", tx);
-        tline.setAttribute("x2", tx);
-        tline.setAttribute("y1", margin.top);
-        tline.setAttribute("y2", H - margin.bottom);
-        tline.setAttribute("stroke","black");
-        tline.setAttribute("stroke-dasharray","6,6");
-        tline.setAttribute("stroke-width","2");
-        svg.appendChild(tline);
-
-        const lbl = document.createElementNS(svg.namespaceURI,"text");
+        const lbl = document.createElementNS(svg.namespaceURI, "text");
         lbl.textContent = "Target: 60,000 tCO₂e";
         lbl.setAttribute("x", tx + 5);
         lbl.setAttribute("y", margin.top - 12);
-        lbl.setAttribute("font-size","12");
+        lbl.setAttribute("font-size", "12");
         svg.appendChild(lbl);
     }
 
-    /* Bars */
-    ds.forEach(d=>{
-        const rect = document.createElementNS(svg.namespaceURI,"rect");
+    /* Draw bars */
+    ds.forEach(d => {
+        const rect = document.createElementNS(svg.namespaceURI, "rect");
 
         const bw = Math.max(10, x(d.abate) - x(0));
 
@@ -288,7 +335,6 @@ function draw(){
         rect.setAttribute("width", bw);
         rect.setAttribute("y", d.macShaped >= 0 ? y(d.macShaped) : y0);
         rect.setAttribute("height", Math.abs(y(d.macShaped) - y0));
-
         rect.setAttribute("fill", macColor(d.mac));
         rect.setAttribute("stroke", "#333");
         rect.setAttribute("stroke-width", "1.2");
@@ -296,61 +342,62 @@ function draw(){
         rect.style.cursor = "pointer";
 
         /* Tooltip */
-        rect.addEventListener("mouseover", evt=>{
-            tip.style.display="block";
+        rect.addEventListener("mouseover", evt => {
+            tip.style.display = "block";
             tip.innerHTML =
-                "<b>"+d.name+"</b><br>"+
-                "Category: "+d.cat+"<br>"+
-                "MAC: "+d.mac+"<br>"+
-                "Abatement: "+d.abate+"<br>"+
-                "Cumulative: "+d.cum+"<br>"+
-                "NPV: "+d.npv+"<br>"+
-                "Capex: "+d.capex+"<br>"+
-                "Opex: "+d.opex;
+                "<b>" + d.name + "</b><br>" +
+                "Category: " + d.cat + "<br>" +
+                "MAC: " + d.mac + "<br>" +
+                "Abatement: " + d.abate + "<br>" +
+                "Cumulative: " + d.cum + "<br>" +
+                "NPV: " + d.npv + "<br>" +
+                "Capex: " + d.capex + "<br>" +
+                "Opex: " + d.opex;
         });
-        rect.addEventListener("mousemove", evt=>{
+        rect.addEventListener("mousemove", evt => {
             tip.style.left = evt.pageX + 10 + "px";
             tip.style.top  = evt.pageY - 20 + "px";
         });
-        rect.addEventListener("mouseout", ()=>{
-            tip.style.display="none";
+        rect.addEventListener("mouseout", () => {
+            tip.style.display = "none";
         });
 
-        /* Click -> parent widget */
-        rect.addEventListener("click", ()=>{
+        rect.addEventListener("click", () => {
             parent.postMessage({ type:"bar_click", label:d.name }, "*");
         });
 
         svg.appendChild(rect);
     });
 
-    /* Axis Labels */
-    const xlab = document.createElementNS(svg.namespaceURI,"text");
+    /* Axis labels */
+    const xlab = document.createElementNS(svg.namespaceURI, "text");
     xlab.textContent = "Total Abatement (tCO₂e)";
     xlab.setAttribute("x", W/2);
-    xlab.setAttribute("y", H-30);
-    xlab.setAttribute("text-anchor","middle");
-    xlab.setAttribute("font-size","16");
+    xlab.setAttribute("y", H - 20);
+    xlab.setAttribute("text-anchor", "middle");
+    xlab.setAttribute("font-size", "16");
     svg.appendChild(xlab);
 
-    const ylab = document.createElementNS(svg.namespaceURI,"text");
+    const ylab = document.createElementNS(svg.namespaceURI, "text");
     ylab.textContent = "MAC (EUR/tCO₂e)";
-    ylab.setAttribute("transform","rotate(-90)");
+    ylab.setAttribute("transform", "rotate(-90)");
     ylab.setAttribute("x", -H/2);
     ylab.setAttribute("y", 40);
-    ylab.setAttribute("text-anchor","middle");
-    ylab.setAttribute("font-size","16");
+    ylab.setAttribute("text-anchor", "middle");
+    ylab.setAttribute("font-size", "16");
     svg.appendChild(ylab);
 }
 
+/* Redraw on resize */
 window.addEventListener("resize", draw);
-<\/script>
+
+</script>
 </body>
 </html>
 `;
 
-      /* Load renderer into iframe */
-      const blob = new Blob([html], { type: "text/html" });
+      /* Load iframe via Blob */
+      const blob = new Blob([html], { type:"text/html" });
       const url  = URL.createObjectURL(blob);
 
       this._frame.src = url;
@@ -362,6 +409,7 @@ window.addEventListener("resize", draw);
         }, "*");
       };
     }
+
   }
 
   customElements.define("variable-width-macc", VariableWidthMACC);
