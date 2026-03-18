@@ -12,6 +12,7 @@
       overflow:hidden;
       font-family:Arial;
   }
+
   #svg {
       position:absolute;
       top:0;
@@ -19,6 +20,7 @@
       width:100%;
       height:100%;
   }
+
   #tooltip {
       position:absolute;
       background:rgba(0,0,0,0.85);
@@ -33,7 +35,7 @@
       z-index:100;
   }
 
-  /* Zoom Controls */
+  /* Zoom control buttons */
   #zoom-controls {
       position:absolute;
       top:10px;
@@ -41,28 +43,28 @@
       display:flex;
       flex-direction:column;
       gap:6px;
-      z-index:150;
+      z-index:200;
   }
 
   #zoom-controls button {
-      background:#ffffff;
-      border:1px solid #666;
-      border-radius:4px;
+      background:white;
+      border:1px solid #444;
+      border-radius:5px;
       width:32px;
       height:32px;
       cursor:pointer;
       font-size:18px;
       font-weight:bold;
   }
+
   #zoom-controls button:hover {
-      background:#eaeaea;
+      background:#e5e5e5;
   }
 </style>
-</head>
 
+</head>
 <body>
 
-<!-- Zoom Buttons -->
 <div id="zoom-controls">
   <button id="zoom-in">＋</button>
   <button id="zoom-out">－</button>
@@ -74,13 +76,8 @@
 
 <script>
 let DATA = null;
-const svg = document.getElementById("svg");
-const tip = document.getElementById("tooltip");
 
-/* Multi-select state */
-let selected = new Set();
-
-/* Receive dataset from SAC widget */
+/* Receive dataset from SAC */
 window.addEventListener("message", evt => {
     if (evt.data?.type === "update") {
         DATA = evt.data.payload;
@@ -88,31 +85,29 @@ window.addEventListener("message", evt => {
     }
 });
 
-/* ============================================================
-   DRAW FUNCTION (v3.1)
-============================================================ */
+const svg = document.getElementById("svg");
+const tip = document.getElementById("tooltip");
+
+let selected = new Set();
+
+/* ===================================================================
+   DRAW FUNCTION (v3.2)
+=================================================================== */
 function draw() {
 
     if (!DATA) return;
 
-    const W = svg.clientWidth  || 800;
+    const W = svg.clientWidth  || 1000;
     const H = svg.clientHeight || 600;
 
     svg.innerHTML = '<g id="viewport"></g>';
     const root = svg.querySelector("#viewport");
 
-    /* Layout margins */
-    const margin = {
-        top: 60,
-        right: 60,
-        bottom: 160,
-        left: 200
-    };
-
+    const margin = { top:60, right:60, bottom:160, left:200 };
     const innerW = W - margin.left - margin.right;
     const innerH = H - margin.top - margin.bottom;
 
-    /* Sanitize dataset */
+    /* Sanitize dataset — prevents NaN crashes */
     const ds = DATA.project.map((p, i) => ({
         name: p,
         cat: DATA.category[i],
@@ -124,25 +119,24 @@ function draw() {
         opex: Number(DATA.opex[i]) || 0
     }));
 
-    const clean = ds.filter(d =>
-        Number.isFinite(d.mac) &&
-        Number.isFinite(d.abate)
-    );
-
+    /* Filter out invalid rows */
+    const clean = ds.filter(d => Number.isFinite(d.abate) && Number.isFinite(d.mac));
     if (clean.length === 0) return;
 
-    clean.sort((a, b) => a.mac - b.mac);
+    /* Sort MAC ascending */
+    clean.sort((a,b)=> a.mac - b.mac);
 
-    let cum = 0;
+    /* Cumulative abatement */
+    let total = 0;
     clean.forEach(d => {
-        d.x0 = cum;
-        cum += d.abate;
-        d.x1 = cum;
+        d.x0 = total;
+        total += d.abate;
+        d.x1 = total;
     });
 
-    const x = v => margin.left + (v / cum) * innerW;
+    const x = v => margin.left + (v / total) * innerW;
 
-    function macColor(v){
+    const macColor = v => {
         if (v <= -1000) return "#238b45";
         if (v <= -500)  return "#74c476";
         if (v < 0)      return "#bae4b3";
@@ -150,9 +144,9 @@ function draw() {
         if (v <= 1500)  return "#fdae6b";
         if (v <= 3000)  return "#fd8d3c";
         return "#e31a1c";
-    }
+    };
 
-    /* Y-scale */
+    /* Linear MAC vertical scale */
     const vals = clean.map(d => d.mac);
     let max = Math.max(...vals);
     let min = Math.min(...vals);
@@ -161,8 +155,7 @@ function draw() {
     max += PAD;
     min -= PAD;
 
-    const y = val =>
-        margin.top + (1 - (val - min) / (max - min)) * innerH;
+    const y = v => margin.top + (1 - (v - min) / (max - min)) * innerH;
 
     const y0 = y(0);
 
@@ -172,35 +165,34 @@ function draw() {
     zl.setAttribute("x2", W - margin.right);
     zl.setAttribute("y1", y0);
     zl.setAttribute("y2", y0);
-    zl.setAttribute("stroke","#0044aa");
+    zl.setAttribute("stroke", "#0044aa");
     zl.setAttribute("stroke-dasharray","4,4");
     zl.setAttribute("stroke-width","1.5");
     root.appendChild(zl);
 
     /* Target line */
     const TARGET = 60000;
-    if (TARGET < cum) {
+    if (TARGET < total){
         const tx = x(TARGET);
-
         const tl = document.createElementNS(svg.namespaceURI,"line");
         tl.setAttribute("x1", tx);
         tl.setAttribute("x2", tx);
         tl.setAttribute("y1", margin.top);
         tl.setAttribute("y2", H - margin.bottom);
-        tl.setAttribute("stroke", "black");
-        tl.setAttribute("stroke-dasharray", "6,6");
-        tl.setAttribute("stroke-width", "2");
+        tl.setAttribute("stroke","black");
+        tl.setAttribute("stroke-width","2");
+        tl.setAttribute("stroke-dasharray","6,4");
         root.appendChild(tl);
 
         const lbl = document.createElementNS(svg.namespaceURI,"text");
         lbl.textContent = "Target: 60,000 tCO₂e";
-        lbl.setAttribute("x", tx + 8);
+        lbl.setAttribute("x", tx + 10);
         lbl.setAttribute("y", margin.top - 18);
         lbl.setAttribute("font-size","14");
         root.appendChild(lbl);
     }
 
-    /* Multi-select toggle */
+    /* Multi-select function */
     function toggleSelect(name, rect){
         if (selected.has(name)) {
             selected.delete(name);
@@ -213,18 +205,18 @@ function draw() {
         }
 
         parent.postMessage({
-            type: "bar_click",
+            type:"bar_click",
             selection: Array.from(selected)
         }, "*");
     }
 
-    /* Bars */
+    /* Draw bars */
     clean.forEach(d => {
+
         const rect = document.createElementNS(svg.namespaceURI,"rect");
 
-        const bw = Math.max(8, x(d.abate) - x(0));
         rect.setAttribute("x", x(d.x0));
-        rect.setAttribute("width", bw);
+        rect.setAttribute("width", Math.max(8, x(d.abate) - x(0)));
         rect.setAttribute("y", d.mac >= 0 ? y(d.mac) : y0);
         rect.setAttribute("height", Math.abs(y(d.mac) - y0));
         rect.setAttribute("fill", macColor(d.mac));
@@ -234,23 +226,20 @@ function draw() {
 
         /* Tooltip */
         rect.addEventListener("mouseover", () => { tip.style.display = "block"; });
-        rect.addEventListener("mouseout", () => { tip.style.display = "none"; });
+        rect.addEventListener("mouseout",  () => { tip.style.display = "none"; });
 
         rect.addEventListener("mousemove", evt => {
-            let x = evt.pageX + 15;
-            let y = evt.pageY - 20;
+            let tx = evt.pageX + 15;
+            let ty = evt.pageY - 20;
 
-            const tW = tip.offsetWidth;
+            if (tx + tip.offsetWidth > window.innerWidth - 10)
+                tx = evt.pageX - tip.offsetWidth - 15;
 
-            if (x + tW > window.innerWidth - 10) {
-                x = evt.pageX - tW - 15;
-            }
-            if (y < 10){
-                y = evt.pageY + 20;
-            }
+            if (ty < 10)
+                ty = evt.pageY + 20;
 
-            tip.style.left = x + "px";
-            tip.style.top = y + "px";
+            tip.style.left = tx + "px";
+            tip.style.top  = ty + "px";
 
             tip.innerHTML =
                 "<b>" + d.name + "</b><br>" +
@@ -263,6 +252,7 @@ function draw() {
                 "Opex: " + d.opex;
         });
 
+        /* Multi-select click */
         rect.addEventListener("click", () => toggleSelect(d.name, rect));
 
         root.appendChild(rect);
@@ -288,8 +278,9 @@ function draw() {
 }
 
 /* ============================================================
-   ZOOM & PAN (v3.1)
+   ZOOM / PAN (v3.2)
 ============================================================ */
+
 let scale = 1;
 let translateX = 0;
 let isDragging = false;
@@ -302,7 +293,7 @@ function applyTransform(){
 
 svg.addEventListener("wheel", evt => {
     evt.preventDefault();
-    scale += evt.deltaY < 0 ? 0.15 : -0.15;
+    scale += evt.deltaY < 0 ? 0.2 : -0.2;
     scale = Math.min(Math.max(scale, 0.3), 5);
     applyTransform();
 });
@@ -322,24 +313,24 @@ svg.addEventListener("mousemove", evt => {
 svg.addEventListener("mouseup",   () => isDragging=false);
 svg.addEventListener("mouseleave",() => isDragging=false);
 
-/* Zoom Buttons */
+/* Zoom Button Actions */
 document.getElementById("zoom-in").onclick = () => {
     scale = Math.min(scale + 0.2, 5);
     applyTransform();
 };
+
 document.getElementById("zoom-out").onclick = () => {
     scale = Math.max(scale - 0.2, 0.3);
     applyTransform();
 };
+
 document.getElementById("zoom-reset").onclick = () => {
     scale = 1;
     translateX = 0;
     applyTransform();
 };
 
-/* Auto redraw */
 window.addEventListener("resize", draw);
-
 </script>
 </body>
 </html>
