@@ -208,38 +208,50 @@ function draw() {
     }
 
     //// PATCH START — split X-ticks into scalable lines + static text
-    function drawXTicks() {
+ // ==== FINAL DRIFT-FIXED X-TICK RENDERING ====
 
-        // Remove old ticks
-        axisLayer.querySelectorAll(".xtick").forEach(e=>e.remove());
-        xTickTextLayer.querySelectorAll(".xtickText").forEach(e=>e.remove());
+function drawXTicks() {
 
-        for (let i = 0; i <= 6; i++) {
+    // Remove old ticks
+    axisLayer.querySelectorAll(".xtick").forEach(e => e.remove());
+    xTickTextLayer.querySelectorAll(".xtickText").forEach(e => e.remove());
 
-            let v = i/6 * totalAb;
-            let xScreen = margin.left + v * scaleX;
-
-            // --- tick LINES (scaled)
-            let t = document.createElementNS(svg.namespaceURI,'line');
-            t.classList.add("xtick");
-            t.setAttribute('x1', xScreen);
-            t.setAttribute('x2', xScreen);
-            t.setAttribute('y1', y0);
-            t.setAttribute('y2', y0+8);
-            t.setAttribute('stroke', '#444');
-            axisLayer.appendChild(t);
-
-            // --- tick LABELS (not scaled)
-            let lab = document.createElementNS(svg.namespaceURI,'text');
-            lab.classList.add("xtickText");
-            lab.textContent = v.toLocaleString() + " tCO₂e";
-            lab.setAttribute("x", xScreen);
-            lab.setAttribute("y", margin.top + innerH + 30);
-            lab.setAttribute("text-anchor", "middle");
-            lab.setAttribute("font-size", "14");
-            xTickTextLayer.appendChild(lab);
-        }
+    // ---- DRIFT FIX: convert chart-space X to screen-space X ----
+    function worldToScreenX(xValue) {
+        return xValue * scale + translateX;
     }
+
+    for (let i = 0; i <= 6; i++) {
+
+        let v = i / 6 * totalAb;
+
+        // Chart coordinate (NOT scaled)
+        let xLocal = margin.left + v * scaleX;
+
+        // Screen coordinate (after zoom + pan)
+        let xScreen = worldToScreenX(xLocal);
+
+        // --- tick LINES (scaled with bars) ---
+        let t = document.createElementNS(svg.namespaceURI, 'line');
+        t.classList.add("xtick");
+        t.setAttribute('x1', xLocal);
+        t.setAttribute('x2', xLocal);
+        t.setAttribute('y1', y0);
+        t.setAttribute('y2', y0 + 8);
+        t.setAttribute('stroke', '#444');
+        axisLayer.appendChild(t);
+
+        // --- tick LABELS (not scaled, screen-stable) ---
+        let lab = document.createElementNS(svg.namespaceURI, 'text');
+        lab.classList.add("xtickText");
+        lab.textContent = v.toLocaleString() + " tCO₂e";
+        lab.setAttribute("x", xScreen);                   // DRIFT FIX APPLIED HERE
+        lab.setAttribute("y", margin.top + innerH + 30);  // stable Y position
+        lab.setAttribute("text-anchor", "middle");
+        lab.setAttribute("font-size", "14");
+        xTickTextLayer.appendChild(lab);
+    }
+}
     //// PATCH END
 
     drawXTicks();
