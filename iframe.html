@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
+
 <style>
   html, body {
       width:100%;
@@ -30,7 +31,7 @@
       pointer-events:none;
       display:none;
       max-width:350px;
-      line-height:1.3em;
+      line-height:1.2em;
       z-index:100;
   }
 
@@ -43,6 +44,7 @@
       gap:6px;
       z-index:200;
   }
+
   #zoom-controls button {
       background:white;
       border:1px solid #444;
@@ -76,52 +78,58 @@
 <svg id="svg"></svg>
 
 <script>
-let DATA = null;
-let selected = new Set();
+let DATA=null;
+let selected=new Set();
 
-/* Brush zoom */
-let brushActive = false;
-let brushStartX = 0;
-let brushRect = null;
+/* Brush */
+let brushActive=false;
+let brushStartX=0;
+let brushRect=null;
 
-/* Pan + Zoom */
-let scale = 1;
-let translateX = 0;
-let dragging = false;
-let dragStartX = 0;
+/* Pan + zoom */
+let scale=1;
+let translateX=0;
+let dragging=false;
+let dragStartX=0;
 
-/* Receive from SAC loader */
-window.addEventListener("message", evt => {
-    if(evt.data?.type === "update"){
-        DATA = evt.data.payload;
+/* Receive data from SAC */
+window.addEventListener("message",evt=>{
+    if(evt.data?.type==="update"){
+        DATA=evt.data.payload;
         draw();
     }
 });
 
-const svg = document.getElementById("svg");
-const tip = document.getElementById("tooltip");
+const svg=document.getElementById("svg");
+const tip=document.getElementById("tooltip");
 
 /* ============================================================
-   DRAW (v3.4.3-COMPACT)
+   DRAW v3.4.4
 ============================================================ */
 function draw(){
     if(!DATA) return;
 
-    const W = svg.clientWidth;
-    const H = svg.clientHeight;
+    const W=svg.clientWidth;
+    const H=svg.clientHeight;
 
-    svg.innerHTML = `<g id="viewport"></g>`;
-    const root = svg.querySelector("#viewport");
+    svg.innerHTML = `
+      <g id="gridLayer"></g>
+      <g id="axisLayer"></g>
+      <g id="barLayer"></g>
+    `;
 
-    scale = 1;
-    translateX = 0;
-    root.setAttribute("transform","translate(0,0) scale(1,1)");
+    const gridLayer = svg.querySelector("#gridLayer");
+    const axisLayer = svg.querySelector("#axisLayer");
+    const barLayer  = svg.querySelector("#barLayer");
 
-    const margin = {top:60,right:80,bottom:160,left:200};
+    scale=1;
+    translateX=0;
+
+    const margin={top:60,right:80,bottom:150,left:200};
     const innerW = Math.max(600, W - margin.left - margin.right);
     const innerH = H - margin.top - margin.bottom;
 
-    /* Dataset */
+    /* Data */
     const rows = DATA.project.map((p,i)=>({
         name:p,
         cat:DATA.category[i],
@@ -132,28 +140,26 @@ function draw(){
         capex:Number(DATA.capex[i])||0,
         opex:Number(DATA.opex[i])||0
     }));
-
     const clean = rows.filter(r=>Number.isFinite(r.abate)&&Number.isFinite(r.mac));
     if(!clean.length) return;
 
-    clean.sort((a,b)=>a.mac - b.mac);
+    clean.sort((a,b)=>a.mac-b.mac);
 
     let totalAb = clean.reduce((s,r)=>s+r.abate,0);
 
-    /*x0/x1 based on true proportional abatement*/
-    let cum = 0;
+    /* x0/x1 */
+    let cum=0;
     clean.forEach(r=>{
-        r.x0 = cum;
-        cum += r.abate;
-        r.x1 = cum;
+        r.x0=cum;
+        cum+=r.abate;
+        r.x1=cum;
     });
 
-    /* compress horizontally by scaling factor - dynamic */
+    /* COMPACT C2 scaling */
     const scaleX = innerW / totalAb;
-
     const x = v => margin.left + v * scaleX;
 
-    /* Color */
+    /* Color palette */
     const macColor=v=>{
         if(v<=-1000) return "#238b45";
         if(v<= -500) return "#74c476";
@@ -170,10 +176,10 @@ function draw(){
     const PAD=(maxMAC-minMAC)*0.15;
     minMAC-=PAD; maxMAC+=PAD;
 
-    const y = val => margin.top + (1-(val-minMAC)/(maxMAC-minMAC))*innerH;
+    const y = val => margin.top + (1 - (val-minMAC)/(maxMAC-minMAC))*innerH;
     const y0 = y(0);
 
-    /* Gridlines */
+    /* Gridlines (G1: fixed, non-scaled) */
     const yTicks=6, xTicks=6;
 
     for(let i=0;i<=yTicks;i++){
@@ -185,7 +191,7 @@ function draw(){
         gl.setAttribute("y1",ypos);
         gl.setAttribute("y2",ypos);
         gl.setAttribute("stroke","#ddd");
-        root.appendChild(gl);
+        gridLayer.appendChild(gl);
     }
 
     for(let i=0;i<=xTicks;i++){
@@ -197,34 +203,82 @@ function draw(){
         gl.setAttribute("y1",margin.top);
         gl.setAttribute("y2",margin.top+innerH);
         gl.setAttribute("stroke","#eee");
-        root.appendChild(gl);
+        gridLayer.appendChild(gl);
     }
 
-    /* Zero MAC line */
-    const zl=document.createElementNS(svg.namespaceURI,"line");
-    zl.setAttribute("x1",margin.left);
-    zl.setAttribute("x2",margin.left+innerW);
-    zl.setAttribute("y1",y0);
-    zl.setAttribute("y2",y0);
-    zl.setAttribute("stroke","#0044aa");
-    zl.setAttribute("stroke-width","1.5");
-    root.appendChild(zl);
+    /* Zero line */
+    {
+        const zl=document.createElementNS(svg.namespaceURI,"line");
+        zl.setAttribute("x1",margin.left);
+        zl.setAttribute("x2",margin.left+innerW);
+        zl.setAttribute("y1",y0);
+        zl.setAttribute("y2",y0);
+        zl.setAttribute("stroke","#0044aa");
+        zl.setAttribute("stroke-width","1.5");
+        axisLayer.appendChild(zl);
+    }
 
-    /* Draw bars (C2 compact) */
+    /* Y ticks */
+    for(let i=0;i<=yTicks;i++){
+        const v=minMAC+(i/yTicks)*(maxMAC-minMAC);
+        const pos=y(v);
+
+        const t=document.createElementNS(svg.namespaceURI,"line");
+        t.setAttribute("x1",margin.left-6);
+        t.setAttribute("x2",margin.left);
+        t.setAttribute("y1",pos);
+        t.setAttribute("y2",pos);
+        t.setAttribute("stroke","#444");
+        axisLayer.appendChild(t);
+
+        const lab=document.createElementNS(svg.namespaceURI,"text");
+        lab.textContent=Math.round(v).toLocaleString();
+        lab.setAttribute("x",margin.left-10);
+        lab.setAttribute("y",pos+4);
+        lab.setAttribute("text-anchor","end");
+        lab.setAttribute("font-size","14");
+        axisLayer.appendChild(lab);
+    }
+
+    /* X ticks */
+    for(let i=0;i<=xTicks;i++){
+        const v=(i/xTicks)*totalAb;
+        const pos=x(v);
+
+        const t=document.createElementNS(svg.namespaceURI,"line");
+        t.setAttribute("x1",pos);
+        t.setAttribute("x2",pos);
+        t.setAttribute("y1",y0);
+        t.setAttribute("y2",y0+8);
+        t.setAttribute("stroke","#444");
+        axisLayer.appendChild(t);
+
+        const lab=document.createElementNS(svg.namespaceURI,"text");
+        lab.textContent=v.toLocaleString()+" tCO₂e";
+        lab.setAttribute("x",pos);
+        lab.setAttribute("y",y0+24);
+        lab.setAttribute("text-anchor","middle");
+        lab.setAttribute("font-size","14");
+        axisLayer.appendChild(lab);
+    }
+
+    /* Bars (zoomable layer) */
     clean.forEach(d=>{
-        const barWidth = Math.max(4, (d.x1 - d.x0) * scaleX); // C2 minimum width = 4px
+        const barWidth = Math.max(4, (d.x1-d.x0)*scaleX);
 
         const rect=document.createElementNS(svg.namespaceURI,"rect");
         rect.setAttribute("x",x(d.x0));
         rect.setAttribute("width",barWidth);
-        rect.setAttribute("y", d.mac>=0 ? y(d.mac) : y0);
-        rect.setAttribute("height", Math.abs(y(d.mac)-y0));
+        rect.setAttribute("y",d.mac>=0?y(d.mac):y0);
+        rect.setAttribute("height",Math.abs(y(d.mac)-y0));
+
         rect.setAttribute("fill",macColor(d.mac));
         rect.setAttribute("stroke",selected.has(d.name)?"black":"#333");
-        rect.setAttribute("stroke-width",selected.has(d.name)?"3":"1.2");
+        rect.setAttribute("stroke-width","1.2");
+        rect.setAttribute("vector-effect","non-scaling-stroke");
         rect.style.cursor="pointer";
 
-        const html=`
+        let html = `
 <b>${d.name}</b><br>
 Category: ${d.cat}<br>
 MAC: ${d.mac}<br>
@@ -234,7 +288,8 @@ NPV: ${d.npv}<br>
 Capex: ${d.capex}<br>
 Opex: ${d.opex}
         `;
-        rect.onmouseover=()=>{tip.style.display="block"; tip.innerHTML=html;};
+
+        rect.onmouseover=()=>{ tip.style.display="block"; tip.innerHTML=html; };
         rect.onmouseout =()=> tip.style.display="none";
         rect.onmousemove=evt=>{
             let tx=evt.clientX+15, ty=evt.clientY-20;
@@ -249,11 +304,9 @@ Opex: ${d.opex}
             if(selected.has(d.name)){
                 selected.delete(d.name);
                 rect.setAttribute("stroke","#333");
-                rect.setAttribute("stroke-width","1.2");
             } else {
                 selected.add(d.name);
                 rect.setAttribute("stroke","black");
-                rect.setAttribute("stroke-width","3");
             }
 
             parent.postMessage({
@@ -262,17 +315,17 @@ Opex: ${d.opex}
             },"*");
         };
 
-        root.appendChild(rect);
+        barLayer.appendChild(rect);
     });
 
-    /* Axis labels */
+    /* Axis labels (static) */
     const xlab=document.createElementNS(svg.namespaceURI,"text");
     xlab.textContent="Total Abatement (tCO₂e)";
     xlab.setAttribute("x", margin.left + innerW/2 );
     xlab.setAttribute("y", H-50);
     xlab.setAttribute("text-anchor","middle");
     xlab.setAttribute("font-size","18");
-    root.appendChild(xlab);
+    axisLayer.appendChild(xlab);
 
     const ylab=document.createElementNS(svg.namespaceURI,"text");
     ylab.textContent="MAC (EUR/tCO₂e)";
@@ -281,13 +334,12 @@ Opex: ${d.opex}
     ylab.setAttribute("y",60);
     ylab.setAttribute("text-anchor","middle");
     ylab.setAttribute("font-size","18");
-    root.appendChild(ylab);
+    axisLayer.appendChild(ylab);
 
-    /* ---------------------------
-       Brush zoom (camera style)
-    ----------------------------*/
+    /* Brush zoom */
     svg.onmousedown=evt=>{
-        if(evt.target.tagName==="rect" || evt.target.tagName==="text") return;
+        if(evt.target.tagName==="rect"||evt.target.tagName==="text") return;
+
         brushActive=true;
         brushStartX=evt.offsetX;
 
@@ -311,13 +363,13 @@ Opex: ${d.opex}
     };
 
     svg.onmouseup=evt=>{
-        if(!brushActive) return;
+        if(!brushActive)return;
         brushActive=false;
 
         const end=evt.offsetX;
         svg.removeChild(brushRect);
 
-        if(end<=brushStartX+10) return;
+        if(end<=brushStartX+10)return;
 
         const pxMin=brushStartX;
         const pxMax=end;
@@ -328,12 +380,10 @@ Opex: ${d.opex}
         const inRange = clean.filter(d=> d.x1>=xMin && d.x0<=xMax);
         if(!inRange.length){ draw(); return; }
 
-        /* Auto-fit Y */
         minMAC=Math.min(...inRange.map(d=>d.mac));
         maxMAC=Math.max(...inRange.map(d=>d.mac));
         minMAC-=PAD; maxMAC+=PAD;
 
-        /* Camera zoom */
         const pxRange = pxMax - pxMin;
         const z = innerW / pxRange;
 
@@ -342,7 +392,6 @@ Opex: ${d.opex}
         applyTransform();
     };
 
-    /* Double-click reset */
     svg.ondblclick=()=>{
         scale=1;
         translateX=0;
@@ -350,11 +399,14 @@ Opex: ${d.opex}
     };
 }
 
-/* Transform apply */
+/* ============================================================
+   APPLY TRANSFORM 
+============================================================ */
 function applyTransform(){
-    const root=svg.querySelector("#viewport");
-    root.setAttribute("transform",
-        `translate(${translateX},0) scale(${scale},1)`);
+    const barLayer=svg.querySelector("#barLayer");
+    barLayer.setAttribute("transform",
+        `translate(${translateX},0) scale(${scale},1)`
+    );
 }
 
 /* Buttons */
@@ -364,9 +416,8 @@ document.getElementById("zoom-reset").onclick=()=>{scale=1;translateX=0;applyTra
 
 /* Pan */
 svg.onmousedown=evt=>{
-    if(brushActive) return;
-    if(evt.target.id==="brush") return;
-    if(evt.button!==0) return;
+    if(evt.target.id==="brush")return;
+    if(evt.button!==0)return;
     dragging=true;
     dragStartX=evt.clientX-translateX;
 };
@@ -376,8 +427,8 @@ svg.onmousemove=evt=>{
         applyTransform();
     }
 };
-svg.onmouseup =()=> dragging=false;
-svg.onmouseleave=()=> dragging=false;
+svg.onmouseup=()=>dragging=false;
+svg.onmouseleave=()=>dragging=false;
 
 /* Wheel zoom */
 svg.onwheel=evt=>{
@@ -389,6 +440,5 @@ svg.onwheel=evt=>{
 
 window.onresize=()=> draw();
 </script>
-
 </body>
 </html>
