@@ -258,13 +258,14 @@ function draw() {
     });
 
     // --- X-axis label (STATIC) ---
-    let xlab = document.createElementNS(svg.namespaceURI,'text');
-    xlab.textContent = "Total Abatement (tCO₂e)";
-    xlab.setAttribute("x", margin.left + innerW/2);
-    xlab.setAttribute("y", y0 + 32);
-    xlab.setAttribute("text-anchor", "middle");
-    xlab.setAttribute("font-size", "18");
-    xAxisLabelLayer.appendChild(xlab);
+    
+let xlab = document.createElementNS(svg.namespaceURI,'text');
+xlab.textContent = "Total Abatement (tCO₂e)";
+xlab.setAttribute("x", margin.left + innerW / 2);
+xlab.setAttribute("y", margin.top + innerH + 45);   // << below grid layer end
+xlab.setAttribute("text-anchor", "middle");
+xlab.setAttribute("font-size", "18");
+xAxisLabelLayer.appendChild(xlab);
 
     // --- Y label ---
     let ylab = document.createElementNS(svg.namespaceURI,'text');
@@ -301,19 +302,26 @@ function draw() {
     // -----------------------------
     // PATCHED TRANSFORM SYSTEM
     // -----------------------------
-    function clampTransform() {
-        const bar0_left  = translateX + margin.left * scale;
-        const grid_left  = margin.left;
-        const grid_right = margin.left + innerW;
-        const bar_right  = translateX + margin.left * scale + innerW * scale;
+    
+function clampTransform() {
+    // World boundaries in screen coordinates
+    const worldLeft  = margin.left * scale + translateX;
+    const worldRight = (margin.left + innerW) * scale + translateX;
 
-        if(bar0_left > grid_left){
-            translateX -= (bar0_left - grid_left);
-        }
-        if(bar_right < grid_right){
-            translateX += (grid_right - bar_right);
-        }
+    const screenLeft  = margin.left;
+    const screenRight = margin.left + innerW;
+
+    // Left clamp
+    if (worldLeft > screenLeft) {
+        translateX -= (worldLeft - screenLeft);
     }
+
+    // Right clamp
+    if (worldRight < screenRight) {
+        translateX += (screenRight - worldRight);
+    }
+}
+
 
     //// PATCH: axisLayer now transforms with bars
     function applyTransform() {
