@@ -94,6 +94,9 @@ function draw() {
         <g id="axisLayer"></g>
         <g id="barLayer" clip-path="url(#plotClip)"></g>
         <g id="xAxisLabelLayer"></g>
+        
+        <!-- PATCH: new layer for X-axis tick labels -->
+        <g id="xTickTextLayer"></g>
     `;
 
     const gridLayer = svg.querySelector("#gridLayer");
@@ -101,6 +104,7 @@ function draw() {
     const barLayer = svg.querySelector("#barLayer");
     const yAxisLayer = svg.querySelector("#yAxisLayer");
     const xAxisLabelLayer = svg.querySelector("#xAxisLabelLayer");
+    const xTickTextLayer = svg.querySelector("#xTickTextLayer");
 
     scale = 1;
     translateX = 0;
@@ -203,32 +207,40 @@ function draw() {
         yAxisLayer.appendChild(lab);
     }
 
+    //// PATCH START — split X-ticks into scalable lines + static text
     function drawXTicks() {
+
+        // Remove old ticks
         axisLayer.querySelectorAll(".xtick").forEach(e=>e.remove());
+        xTickTextLayer.querySelectorAll(".xtickText").forEach(e=>e.remove());
 
-        for(let i=0;i<=6;i++){
-            let v = i/6*totalAb;
-            let pos = margin.left + v * scaleX;
+        for (let i = 0; i <= 6; i++) {
 
+            let v = i/6 * totalAb;
+            let xScreen = margin.left + v * scaleX;
+
+            // --- tick LINES (scaled)
             let t = document.createElementNS(svg.namespaceURI,'line');
             t.classList.add("xtick");
-            t.setAttribute('x1', pos);
-            t.setAttribute('x2', pos);
+            t.setAttribute('x1', xScreen);
+            t.setAttribute('x2', xScreen);
             t.setAttribute('y1', y0);
             t.setAttribute('y2', y0+8);
             t.setAttribute('stroke', '#444');
             axisLayer.appendChild(t);
 
+            // --- tick LABELS (not scaled)
             let lab = document.createElementNS(svg.namespaceURI,'text');
-            lab.classList.add("xtick");
+            lab.classList.add("xtickText");
             lab.textContent = v.toLocaleString() + " tCO₂e";
-            lab.setAttribute('x', pos);
-            lab.setAttribute('y', y0+24);
-            lab.setAttribute('text-anchor','middle');
-            lab.setAttribute('font-size','14');
-            axisLayer.appendChild(lab);
+            lab.setAttribute("x", xScreen);
+            lab.setAttribute("y", margin.top + innerH + 30);
+            lab.setAttribute("text-anchor", "middle");
+            lab.setAttribute("font-size", "14");
+            xTickTextLayer.appendChild(lab);
         }
     }
+    //// PATCH END
 
     drawXTicks();
 
@@ -248,15 +260,11 @@ function draw() {
         barLayer.appendChild(r);
     });
 
-    // X-axis label — keep static
+    // X-axis label
     let xlab = document.createElementNS(svg.namespaceURI,'text');
     xlab.textContent = "Total Abatement (tCO₂e)";
     xlab.setAttribute("x", margin.left + innerW / 2);
-
-    //// ENHANCEMENT START — smarter placement below grid
     xlab.setAttribute("y", margin.top + innerH + 55);
-    //// ENHANCEMENT END
-
     xlab.setAttribute("text-anchor", "middle");
     xlab.setAttribute("font-size", "18");
     xAxisLabelLayer.appendChild(xlab);
@@ -290,8 +298,7 @@ function draw() {
         } else tip.style.display="none";
     });
 
-
-    //// ENHANCEMENT START — improved world-space clamping
+    // Improved Clamping (kept from your stable build)
     function clampTransform() {
 
         const scaledLeft   = margin.left * scale + translateX;
@@ -308,8 +315,6 @@ function draw() {
             translateX += (screenRight - scaledRight);
         }
     }
-    //// ENHANCEMENT END
-
 
     function applyTransform() {
         const transform = `translate(${translateX},0) scale(${scale},1)`;
