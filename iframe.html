@@ -13,7 +13,6 @@
       font-family:Arial, sans-serif;
   }
 
-  /* SVG fills widget area */
   #svg {
       position:absolute;
       top:0;
@@ -22,7 +21,6 @@
       height:100%;
   }
 
-  /* Tooltip */
   #tooltip {
       position:absolute;
       background:rgba(0,0,0,0.85);
@@ -37,7 +35,6 @@
       z-index:100;
   }
 
-  /* Zoom buttons */
   #zoom-controls {
       position:absolute;
       top:10px;
@@ -59,14 +56,12 @@
   }
   #zoom-controls button:hover { background:#e5e5e5; }
 
-  /* Brush selection rectangle */
   #brush {
       fill:rgba(150,150,150,0.25);
       stroke:#333;
       stroke-dasharray:4;
       pointer-events:none;
   }
-
 </style>
 </head>
 
@@ -82,67 +77,65 @@
 <svg id="svg"></svg>
 
 <script>
-/* --- Global chart state --- */
-let DATA = null;
-let selected = new Set();
+let DATA=null;
+let selected=new Set();
 
 /* Brush zoom */
-let brushActive = false;
-let brushStartX = 0;
-let brushRect = null;
+let brushActive=false;
+let brushStartX=0;
+let brushRect=null;
 
-/* Zoom + Pan state */
-let scale = 1;
-let translateX = 0;
-let dragging = false;
-let dragStartX = 0;
+/* Pan + Zoom transform */
+let scale=1;
+let translateX=0;
+let dragging=false;
+let dragStartX=0;
 
-/* ============================
-   Receive Data from SAC Loader
-=============================== */
-window.addEventListener("message", evt => {
-    if (evt.data?.type === "update") {
-        DATA = evt.data.payload;
+/* Receive data from SAC */
+window.addEventListener("message",evt=>{
+    if(evt.data?.type==="update"){
+        DATA=evt.data.payload;
         draw();
     }
 });
 
-const svg = document.getElementById("svg");
-const tip = document.getElementById("tooltip");
+const svg=document.getElementById("svg");
+const tip=document.getElementById("tooltip");
 
 /* ============================================================
-   DRAW CHART (v3.7)
+   DRAW v3.4.2 (restored stable)
 ============================================================ */
-function draw() {
+function draw(){
+    if(!DATA) return;
 
-    if (!DATA) return;
+    const W=svg.clientWidth;
+    const H=svg.clientHeight;
 
-    const W = svg.clientWidth;
-    const H = svg.clientHeight;
+    /* Full-width fit (F1) + S2 proportional widths */
+    let totalAb=DATA.abatement.reduce((a,b)=>a+b,0);
 
-    /* --- W3 Hybrid Dynamic Width --- */
-    const totalAbate = DATA.abatement.reduce((a,b)=>a+b,0);
-    const svgWidth =
-        totalAbate <  50000 ? 2500 :
-        totalAbate < 150000 ? 3500 :
-        totalAbate < 300000 ? 4500 :
-                              6000;
+    /* Keep a comfortable proportional width */
+    const svgWidth=
+        totalAb< 50000 ? 1600 :
+        totalAb<150000 ? 2200 :
+        totalAb<300000 ? 2800 :
+                         3400;
 
-    /* Remove viewBox; use simple scaling */
-    svg.innerHTML = `<g id="viewport"></g>`;
-    const root = svg.querySelector("#viewport");
+    /* Remove viewBox entirely; use explicit coordinate system */
+    svg.innerHTML=`<g id="viewport"></g>`;
+    const root=svg.querySelector("#viewport");
 
-    root.setAttribute("transform", "translate(0,0) scale(1,1)");
-    scale = 1;
-    translateX = 0;
+    /* Reset transforms */
+    scale=1;
+    translateX=0;
+    root.setAttribute("transform","translate(0,0) scale(1,1)");
 
-    /* Margins */
-    const margin = { top:60, right:80, bottom:140, left:200 };
-    const innerW = svgWidth - margin.left - margin.right;
-    const innerH = H - margin.top - margin.bottom;
+    const margin={top:60,right:80,bottom:150,left:200};
+    const innerW=svgWidth - margin.left - margin.right;
+    const innerH=H - margin.top - margin.bottom;
 
-    /* Convert dataset */
-    const rows = DATA.project.map((p,i)=>({
+    /* Build dataset */
+    const rows=DATA.project.map((p,i)=>({
         name:p,
         cat:DATA.category[i],
         abate:Number(DATA.abatement[i])||0,
@@ -152,48 +145,49 @@ function draw() {
         capex:Number(DATA.capex[i])||0,
         opex:Number(DATA.opex[i])||0
     }));
-    const clean = rows.filter(r=>Number.isFinite(r.abate)&&Number.isFinite(r.mac));
-    if (!clean.length) return;
 
-    /* MACC sorted by MAC */
+    const clean=rows.filter(r=>Number.isFinite(r.abate)&&Number.isFinite(r.mac));
+    if(!clean.length) return;
+
+    /* Sort MAC ascending */
     clean.sort((a,b)=>a.mac - b.mac);
 
-    /* Compute cumulative x0/x1 */
-    let cum = 0;
+    /* Assign x0/x1 */
+    let cum=0;
     clean.forEach(r=>{
-        r.x0 = cum;
-        cum += r.abate;
-        r.x1 = cum;
+        r.x0=cum;
+        cum+=r.abate;
+        r.x1=cum;
     });
 
-    const x = v => margin.left + (v / totalAbate) * innerW;
+    const x=v=> margin.left + (v/totalAb)*innerW;
 
-    /* Color bins */
-    function macColor(v){
-        if (v <= -1000) return "#238b45";
-        if (v <= -500)  return "#74c476";
-        if (v < 0)      return "#bae4b3";
-        if (v <= 500)   return "#fee391";
-        if (v <= 1500)  return "#fdae6b";
-        if (v <= 3000)  return "#fd8d3c";
+    /* Color */
+    const macColor=v=>{
+        if(v<=-1000) return "#238b45";
+        if(v<= -500) return "#74c476";
+        if(v<0)      return "#bae4b3";
+        if(v<= 500) return "#fee391";
+        if(v<=1500) return "#fdae6b";
+        if(v<=3000) return "#fd8d3c";
         return "#e31a1c";
-    }
+    };
 
     /* Global Y scale */
-    let minMAC = Math.min(...clean.map(r=>r.mac));
-    let maxMAC = Math.max(...clean.map(r=>r.mac));
-    const PAD = (maxMAC - minMAC) * 0.15;
-    minMAC -= PAD;
-    maxMAC += PAD;
+    let minMAC=Math.min(...clean.map(r=>r.mac));
+    let maxMAC=Math.max(...clean.map(r=>r.mac));
+    const PAD=(maxMAC-minMAC)*0.15;
+    minMAC-=PAD;
+    maxMAC+=PAD;
 
-    const y = v => margin.top + (1 - (v - minMAC)/(maxMAC-minMAC)) * innerH;
-    const y0 = y(0);
+    const y=val=> margin.top + (1-(val-minMAC)/(maxMAC-minMAC))*innerH;
+    const y0=y(0);
 
-    /* Gridlines */
+    /* Grid */
     const yTicks=6, xTicks=6;
 
     for(let i=0;i<=yTicks;i++){
-        const v=minMAC + (i/yTicks)*(maxMAC-minMAC);
+        const v=minMAC+(i/yTicks)*(maxMAC-minMAC);
         const ypos=y(v);
         const gl=document.createElementNS(svg.namespaceURI,"line");
         gl.setAttribute("x1",margin.left);
@@ -205,7 +199,7 @@ function draw() {
     }
 
     for(let i=0;i<=xTicks;i++){
-        const v=(i/xTicks)*totalAbate;
+        const v=(i/xTicks)*totalAb;
         const xpos=x(v);
         const gl=document.createElementNS(svg.namespaceURI,"line");
         gl.setAttribute("x1",xpos);
@@ -228,7 +222,7 @@ function draw() {
 
     /* Target line */
     const TARGET=60000;
-    if(TARGET<totalAbate){
+    if(TARGET<totalAb){
         const tx=x(TARGET);
         const tl=document.createElementNS(svg.namespaceURI,"line");
         tl.setAttribute("x1",tx);
@@ -240,27 +234,69 @@ function draw() {
         tl.setAttribute("stroke-width","2");
         root.appendChild(tl);
 
-        const label=document.createElementNS(svg.namespaceURI,"text");
-        label.textContent="Target: 60,000 tCO₂e";
-        label.setAttribute("x",tx+10);
-        label.setAttribute("y",margin.top-18);
-        label.setAttribute("font-size","14");
-        root.appendChild(label);
+        const lbl=document.createElementNS(svg.namespaceURI,"text");
+        lbl.textContent="Target: 60,000 tCO₂e";
+        lbl.setAttribute("x",tx+10);
+        lbl.setAttribute("y",margin.top-18);
+        lbl.setAttribute("font-size","14");
+        root.appendChild(lbl);
     }
 
-    /* Draw bars */
+    /* Y ticks */
+    for(let i=0;i<=yTicks;i++){
+        const v=minMAC+(i/yTicks)*(maxMAC-minMAC);
+        const pos=y(v);
+        const t=document.createElementNS(svg.namespaceURI,"line");
+        t.setAttribute("x1",margin.left-6);
+        t.setAttribute("x2",margin.left);
+        t.setAttribute("y1",pos);
+        t.setAttribute("y2",pos);
+        t.setAttribute("stroke","#444");
+        root.appendChild(t);
+
+        const lab=document.createElementNS(svg.namespaceURI,"text");
+        lab.textContent=Math.round(v).toLocaleString();
+        lab.setAttribute("x",margin.left-10);
+        lab.setAttribute("y",pos+4);
+        lab.setAttribute("text-anchor","end");
+        lab.setAttribute("font-size","14");
+        root.appendChild(lab);
+    }
+
+    /* X ticks */
+    for(let i=0;i<=xTicks;i++){
+        const v=(i/xTicks)*totalAb;
+        const pos=x(v);
+        const t=document.createElementNS(svg.namespaceURI,"line");
+        t.setAttribute("x1",pos);
+        t.setAttribute("x2",pos);
+        t.setAttribute("y1",y0);
+        t.setAttribute("y2",y0+8);
+        t.setAttribute("stroke","#444");
+        root.appendChild(t);
+
+        const lab=document.createElementNS(svg.namespaceURI,"text");
+        lab.textContent=v.toLocaleString()+" tCO₂e";
+        lab.setAttribute("x",pos);
+        lab.setAttribute("y",y0+24);
+        lab.setAttribute("text-anchor","middle");
+        lab.setAttribute("font-size","14");
+        root.appendChild(lab);
+    }
+
+    /* Bars */
     clean.forEach(d=>{
         const rect=document.createElementNS(svg.namespaceURI,"rect");
-        rect.setAttribute("x", x(d.x0));
-        rect.setAttribute("width", Math.max(8, x(d.abate)-x(0)));
-        rect.setAttribute("y", d.mac>=0 ? y(d.mac) : y0);
-        rect.setAttribute("height", Math.abs(y(d.mac)-y0));
-        rect.setAttribute("fill", macColor(d.mac));
-        rect.setAttribute("stroke", selected.has(d.name)?"black":"#333");
-        rect.setAttribute("stroke-width", selected.has(d.name)?"3":"1.2");
+        rect.setAttribute("x",x(d.x0));
+        rect.setAttribute("width",Math.max(8,x(d.x1)-x(d.x0)));
+        rect.setAttribute("y",d.mac>=0?y(d.mac):y0);
+        rect.setAttribute("height",Math.abs(y(d.mac)-y0));
+        rect.setAttribute("fill",macColor(d.mac));
+        rect.setAttribute("stroke",selected.has(d.name)?"black":"#333");
+        rect.setAttribute("stroke-width",selected.has(d.name)?"3":"1.2");
         rect.style.cursor="pointer";
 
-        const tipHtml = `
+        const html=`
 <b>${d.name}</b><br>
 Category: ${d.cat}<br>
 MAC: ${d.mac}<br>
@@ -270,12 +306,13 @@ NPV: ${d.npv}<br>
 Capex: ${d.capex}<br>
 Opex: ${d.opex}`;
 
-        rect.addEventListener("mouseover",()=>{ tip.style.display="block"; tip.innerHTML=tipHtml; });
-        rect.addEventListener("mouseout",()=> tip.style.display="none");
+        rect.addEventListener("mouseover",()=>{tip.style.display="block";tip.innerHTML=html;});
+        rect.addEventListener("mouseout",()=>tip.style.display="none");
         rect.addEventListener("mousemove",evt=>{
             let tx=evt.clientX+15;
             let ty=evt.clientY-20;
-            if(tx+tip.offsetWidth > window.innerWidth-10) tx=evt.clientX-tip.offsetWidth-15;
+            if(tx+tip.offsetWidth>window.innerWidth-10)
+                tx=evt.clientX-tip.offsetWidth-15;
             if(ty<10) ty=evt.clientY+20;
             tip.style.left=tx+"px";
             tip.style.top=ty+"px";
@@ -294,7 +331,7 @@ Opex: ${d.opex}`;
 
             parent.postMessage({
                 type:"bar_click",
-                selectedMembers: Array.from(selected).map(x=>({id:x}))
+                selectedMembers:Array.from(selected).map(x=>({id:x}))
             },"*");
         });
 
@@ -304,8 +341,8 @@ Opex: ${d.opex}`;
     /* Axis labels */
     const xlab=document.createElementNS(svg.namespaceURI,"text");
     xlab.textContent="Total Abatement (tCO₂e)";
-    xlab.setAttribute("x", margin.left + innerW/2 );
-    xlab.setAttribute("y", H - 50);
+    xlab.setAttribute("x",margin.left+innerW/2);
+    xlab.setAttribute("y",H-50);
     xlab.setAttribute("text-anchor","middle");
     xlab.setAttribute("font-size","18");
     root.appendChild(xlab);
@@ -320,16 +357,17 @@ Opex: ${d.opex}`;
     root.appendChild(ylab);
 
     /* ============================================================
-       Brush zoom (Z1)
-    ============================================================ */
+       BRUSH ZOOM (camera style)
+============================================================ */
     svg.onmousedown = function(evt){
-        if(evt.target.tagName === "rect" || evt.target.tagName === "text") return;
+        if(evt.target.tagName==="rect" || evt.target.tagName==="text")
+            return;
 
-        brushActive = true;
-        brushStartX = evt.offsetX;
+        brushActive=true;
+        brushStartX=evt.offsetX;
 
-        brushRect = document.createElementNS(svg.namespaceURI,"rect");
-        brushRect.id = "brush";
+        brushRect=document.createElementNS(svg.namespaceURI,"rect");
+        brushRect.id="brush";
         brushRect.setAttribute("x",brushStartX);
         brushRect.setAttribute("y",margin.top);
         brushRect.setAttribute("width",0);
@@ -337,100 +375,96 @@ Opex: ${d.opex}`;
         svg.appendChild(brushRect);
     };
 
-    svg.onmousemove = function(evt){
+    svg.onmousemove=function(evt){
         if(!brushActive) return;
-        const currentX = evt.offsetX;
-
-        if(currentX < brushStartX){
+        const cx=evt.offsetX;
+        if(cx<brushStartX){
             brushRect.setAttribute("width",0);
             return;
         }
-        brushRect.setAttribute("width", currentX - brushStartX);
+        brushRect.setAttribute("width",cx-brushStartX);
     };
 
-    svg.onmouseup = function(evt){
+    svg.onmouseup=function(evt){
         if(!brushActive) return;
-        brushActive = false;
+        brushActive=false;
 
-        const endX = evt.offsetX;
+        const end=evt.offsetX;
         svg.removeChild(brushRect);
 
-        if(endX <= brushStartX + 10){
-            return;
-        }
+        if(end<=brushStartX+10) return;
 
-        const pxMin = brushStartX;
-        const pxMax = endX;
+        const pxMin=brushStartX;
+        const pxMax=end;
 
-        const xMin = totalAbate * ((pxMin - margin.left)/innerW);
-        const xMax = totalAbate * ((pxMax - margin.left)/innerW);
+        /* Convert to abatement range */
+        const xMin=totalAb*((pxMin-margin.left)/innerW);
+        const xMax=totalAb*((pxMax-margin.left)/innerW);
 
-        /* filter bars */
-        const inRange = clean.filter(d=> d.x1>=xMin && d.x0<=xMax);
-        if(!inRange.length){ draw(); return; }
+        const inRange=clean.filter(d=>d.x1>=xMin && d.x0<=xMax);
+        if(!inRange.length){draw();return;}
 
-        /* auto-fit Y */
-        let zmin = Math.min(...inRange.map(d=>d.mac));
-        let zmax = Math.max(...inRange.map(d=>d.mac));
-        zmin -= PAD; zmax += PAD;
+        /* Auto-fit Y */
+        minMAC=Math.min(...inRange.map(d=>d.mac));
+        maxMAC=Math.max(...inRange.map(d=>d.mac));
+        minMAC-=PAD;
+        maxMAC+=PAD;
 
-        /* zoom scale */
-        const pxRange = pxMax - pxMin;
-        const zoomFactor = innerW / pxRange;
+        /* Camera zoom (B1) */
+        const pxRange=pxMax-pxMin;
+        const z=innerW/pxRange;
 
-        scale = zoomFactor;
-        translateX = -pxMin * zoomFactor + margin.left;
+        scale=z;
+        translateX = -pxMin*z + margin.left;
 
         applyTransform();
     };
 
-    svg.ondblclick = function(){
-        scale = 1;
-        translateX = 0;
+    svg.ondblclick=function(){
+        scale=1;
+        translateX=0;
         applyTransform();
     };
 }
 
 /* ============================================================
-   Apply Pan/Zoom transform
+   CAMERA TRANSFORM (B1)
 ============================================================ */
 function applyTransform(){
-    const root = svg.querySelector("#viewport");
-    root.setAttribute("transform",
-        `translate(${translateX},0) scale(${scale},1)`
-    );
+    const root=svg.querySelector("#viewport");
+    root.setAttribute("transform",`translate(${translateX},0) scale(${scale},1)`);
 }
 
 /* Buttons */
-document.getElementById("zoom-in").onclick = ()=>{ scale=Math.min(scale+0.2,5); applyTransform(); };
-document.getElementById("zoom-out").onclick = ()=>{ scale=Math.max(scale-0.2,0.3); applyTransform(); };
-document.getElementById("zoom-reset").onclick = ()=>{ scale=1; translateX=0; applyTransform(); };
+document.getElementById("zoom-in").onclick=()=>{scale=Math.min(scale+0.2,5);applyTransform();};
+document.getElementById("zoom-out").onclick=()=>{scale=Math.max(scale-0.2,0.3);applyTransform();};
+document.getElementById("zoom-reset").onclick=()=>{scale=1;translateX=0;applyTransform();};
 
 /* Pan */
 svg.addEventListener("mousedown",evt=>{
     if(evt.target.id==="brush") return;
     if(evt.button!==0) return;
     dragging=true;
-    dragStartX=evt.clientX - translateX;
+    dragStartX=evt.clientX-translateX;
 });
 svg.addEventListener("mousemove",evt=>{
     if(dragging){
-        translateX = evt.clientX - dragStartX;
+        translateX=evt.clientX-dragStartX;
         applyTransform();
     }
 });
-svg.addEventListener("mouseup",()=> dragging=false);
-svg.addEventListener("mouseleave",()=> dragging=false);
+svg.addEventListener("mouseup",()=>dragging=false);
+svg.addEventListener("mouseleave",()=>dragging=false);
 
 /* Wheel zoom */
 svg.addEventListener("wheel",evt=>{
     evt.preventDefault();
-    scale += evt.deltaY<0 ? 0.2 : -0.2;
+    scale+=evt.deltaY<0?0.2:-0.2;
     scale=Math.min(Math.max(scale,0.3),5);
     applyTransform();
 });
 
-window.addEventListener("resize", draw);
+window.addEventListener("resize",draw);
 </script>
 
 </body>
