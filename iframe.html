@@ -422,29 +422,33 @@ Opex: ${d.opex}
 
     /* Recompute ticks on zoom */
     function applyTransform(){
-        const barLayer=svg.querySelector("#barLayer");
-        barLayer.setAttribute("transform",
-            `translate(${translateX},0) scale(${scale},1)`);
+    const barLayer = svg.querySelector("#barLayer");
 
-        /* AxisLayer translates ONLY */
-        axisLayer.setAttribute("transform",
-            `translate(${translateX},0)`);
+    barLayer.setAttribute("transform",
+        `translate(${translateX},0) scale(${scale},1)`
+    );
 
-        /* Redraw X ticks at translated positions */
-        svg.querySelectorAll(".xtick").forEach(el=>el.remove());
-        drawXTicks(translateX);
-    }
+    // ❗ Axis and grid must NEVER move:
+    const axisLayer = svg.querySelector("#axisLayer");
+    const gridLayer = svg.querySelector("#gridLayer");
+
+    axisLayer.setAttribute("transform", "");
+    gridLayer.setAttribute("transform", "");
+}
 
     /* Expose for outer functions */
     window.applyTransform = applyTransform;
 
     /* Pan */
-    svg.onmousedown = evt=>{
-        if(evt.target.id==="brush")return;
-        if(evt.button!==0)return;
-        dragging=true;
-        dragStartX=evt.clientX-translateX;
-    };
+   
+svg.onmousedown = evt=>{
+    if(scale === 1) return;        // ❗ disable pan when not zoomed
+    if(evt.target.id==="brush")return;
+    if(evt.button!==0)return;
+    dragging=true;
+    dragStartX=evt.clientX-translateX;
+};
+
 
     svg.onmousemove = evt=>{
         if(dragging){
@@ -457,12 +461,12 @@ Opex: ${d.opex}
     svg.onmouseleave = ()=> dragging=false;
 
     /* Wheel zoom */
-    svg.onwheel = evt=>{
-        evt.preventDefault();
-        scale+= evt.deltaY<0?0.2:-0.2;
-        scale=Math.min(Math.max(scale,0.3),5);
-        applyTransform();
-    };
+   
+svg.onwheel = evt=>{
+    evt.preventDefault();
+    return;  // ❗ MW3 disable wheel zoom completely
+};
+
 }
 
 /* Redraw on resize */
