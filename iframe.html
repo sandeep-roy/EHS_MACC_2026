@@ -205,7 +205,7 @@ function draw() {
     let xlab=document.createElementNS(svg.namespaceURI,'text');
     xlab.textContent="Total Abatement (tCO₂e)";
     xlab.setAttribute("x", margin.left + innerW/2);
-    xlab.setAttribute("y", y0 + 40);   // <<< moved up
+    xlab.setAttribute("y", y0 + 32);   // <<< moved up
     xlab.setAttribute("text-anchor","middle");
     xlab.setAttribute("font-size","18");
     axisLayer.appendChild(xlab);
@@ -241,21 +241,28 @@ function draw() {
 
     // ----- FINAL CORRECT CLAMP -----
     function clampTransform() {
+    // Actual left screen position of first bar after scaling
+    const bar0_left = translateX + margin.left * scale;
 
-        // left boundary (bar0 cannot go left of axis)
-        const bar0_screen = translateX + margin.left * scale;
-        if (bar0_screen > margin.left) {
-            translateX -= (bar0_screen - margin.left);
-        }
+    // Grid boundaries
+    const grid_left  = margin.left;
+    const grid_right = margin.left + innerW;
 
-        // right boundary
-        const rightmost_screen = translateX + margin.left * scale + innerW * scale;
-        const gridRight = margin.left + innerW;
+    // Actual rightmost bar screen position after scaling
+    const bar_right = translateX + margin.left * scale + innerW * scale;
 
-        if (rightmost_screen < gridRight) {
-            translateX += (gridRight - rightmost_screen);
-        }
+    // ---- LEFT CLAMP ----
+    // Ensure first bar never moves left of Y-axis
+    if (bar0_left > grid_left) {
+        translateX -= (bar0_left - grid_left);
     }
+
+    // ---- RIGHT CLAMP ----
+    // Ensure last bar never moves outside right boundary
+    if (bar_right < grid_right) {
+        translateX += (grid_right - bar_right);
+    }
+}
 
     // ----- apply transform -----
     function applyTransform() {
