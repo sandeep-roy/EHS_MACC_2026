@@ -75,19 +75,7 @@
 </div>
 
 <div id="tooltip"></div>
-
-<svg id="svg">
-  <defs>
-    <clipPath id="plotClip">
-      <rect id="clipRect" x="0" y="0" width="100" height="100"></rect>
-    </clipPath>
-  </defs>
-
-  <g id="gridLayer"></g>
-  <g id="axisLayer"></g>
-  <g id="barLayer" clip-path="url(#plotClip)"></g>
-</svg>
-
+<svg id="svg"></svg>
 
 <script>
 let DATA=null;
@@ -118,37 +106,7 @@ const tip=document.getElementById("tooltip");
 /* ============================================================
    DRAW v3.4.4
 ============================================================ */
-function drawXTicks() {
-    const axisLayer = svg.querySelector("#axisLayer");
-    axisLayer.querySelectorAll(".xtick").forEach(el => el.remove());
-
-    const tickCount = scale <= 1 ? 6 : Math.min(6 * Math.ceil(scale), 24);
-
-    for (let i = 0; i <= tickCount; i++) {
-        const val = (i / tickCount) * totalAb;
-        const pos = x(val);
-
-        const t = document.createElementNS(svg.namespaceURI, "line");
-        t.classList.add("xtick");
-        t.setAttribute("x1", pos);
-        t.setAttribute("x2", pos);
-        t.setAttribute("y1", y0);
-        t.setAttribute("y2", y0 + 8);
-        t.setAttribute("stroke", "#444");
-        axisLayer.appendChild(t);
-
-        const lab = document.createElementNS(svg.namespaceURI, "text");
-        lab.classList.add("xtick");
-        lab.textContent = val.toLocaleString() + " tCO₂e";
-        lab.setAttribute("x", pos);
-        lab.setAttribute("y", y0 + 24);
-        lab.setAttribute("text-anchor", "middle");
-        lab.setAttribute("font-size", "14");
-        axisLayer.appendChild(lab);
-    }
-}
-drawXTicks();
-  function draw(){
+function draw(){
     if(!DATA) return;
 
     const W=svg.clientWidth;
@@ -170,10 +128,6 @@ drawXTicks();
     const margin={top:60,right:80,bottom:150,left:200};
     const innerW = Math.max(600, W - margin.left - margin.right);
     const innerH = H - margin.top - margin.bottom;
-    svg.querySelector("#clipRect").setAttribute("x", margin.left);
-svg.querySelector("#clipRect").setAttribute("y", margin.top);
-svg.querySelector("#clipRect").setAttribute("width", innerW);
-svg.querySelector("#clipRect").setAttribute("height", innerH);
 
     /* Data */
     const rows = DATA.project.map((p,i)=>({
@@ -383,13 +337,20 @@ Opex: ${d.opex}
     axisLayer.appendChild(ylab);
 
     /* Brush zoom */
-   svg.onmousedown = evt => {
-    if (scale === 1) return;   // ❗ lock when zoomed out
-    if (evt.target.id === "brush") return;
-    if (evt.button !== 0) return;
-    dragging = true;
-    dragStartX = evt.clientX - translateX;
-};
+    svg.onmousedown=evt=>{
+        if(evt.target.tagName==="rect"||evt.target.tagName==="text") return;
+
+        brushActive=true;
+        brushStartX=evt.offsetX;
+
+        brushRect=document.createElementNS(svg.namespaceURI,"rect");
+        brushRect.id="brush";
+        brushRect.setAttribute("x",brushStartX);
+        brushRect.setAttribute("y",margin.top);
+        brushRect.setAttribute("width",0);
+        brushRect.setAttribute("height",innerH);
+        svg.appendChild(brushRect);
+    };
 
     svg.onmousemove=evt=>{
         if(!brushActive) return;
@@ -426,12 +387,9 @@ Opex: ${d.opex}
         const pxRange = pxMax - pxMin;
         const z = innerW / pxRange;
 
-        scale = Math.min(z, 5);
-
-const cx = (pxMin + pxMax) / 2;
-translateX = margin.left + innerW/2 - cx * scale;
-
-applyTransform();
+        scale = z;
+        translateX = -pxMin*z + margin.left;
+        applyTransform();
     };
 
     svg.ondblclick=()=>{
@@ -444,37 +402,16 @@ applyTransform();
 /* ============================================================
    APPLY TRANSFORM 
 ============================================================ */
-function applyTransform() {
-    const barLayer = svg.querySelector("#barLayer");
-
-    // Bars zoom + translate
-    barLayer.setAttribute(
-        "transform",
+function applyTransform(){
+    const barLayer=svg.querySelector("#barLayer");
+    barLayer.setAttribute("transform",
         `translate(${translateX},0) scale(${scale},1)`
     );
-
-    // Axis and grid remain fixed
-    svg.querySelector("#axisLayer").setAttribute("transform", "");
-    svg.querySelector("#gridLayer").setAttribute("transform", "");
-
-
+}
 
 /* Buttons */
-document.getElementById("zoom-in").onclick = () => {
-    const prev = scale;
-    const cx = margin.left + innerW/2;
-    scale = Math.min(prev * 1.2, 5);
-    translateX = cx - (cx - translateX) * (scale / prev);
-    applyTransform();
-};
-document.getElementById("zoom-out").onclick = () => {
-    if (scale <= 1) return;
-    const prev = scale;
-    const cx = margin.left + innerW/2;
-    scale = Math.max(prev / 1.2, 1);
-    translateX = cx - (cx - translateX) * (scale / prev);
-    applyTransform();
-};
+document.getElementById("zoom-in").onclick=()=>{scale=Math.min(scale+0.2,5);applyTransform();};
+document.getElementById("zoom-out").onclick=()=>{scale=Math.max(scale-0.2,0.3);applyTransform();};
 document.getElementById("zoom-reset").onclick=()=>{scale=1;translateX=0;applyTransform();};
 
 /* Pan */
@@ -494,12 +431,12 @@ svg.onmouseup=()=>dragging=false;
 svg.onmouseleave=()=>dragging=false;
 
 /* Wheel zoom */
-
-svg.onwheel = evt => {
+svg.onwheel=evt=>{
     evt.preventDefault();
-    return;   // ❗ disable wheel zoom
+    scale+= evt.deltaY<0 ? 0.2 : -0.2;
+    scale=Math.min(Math.max(scale,0.3),5);
+    applyTransform();
 };
-
 
 window.onresize=()=> draw();
 </script>
