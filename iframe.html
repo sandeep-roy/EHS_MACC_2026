@@ -10,24 +10,16 @@
       margin:0;
       padding:0;
       overflow:hidden;
-      font-family:Arial;
+      font-family:Arial, sans-serif;
   }
 
-  #scroll-container {
+  #svg {
       position:absolute;
       top:0;
       left:0;
       width:100%;
       height:100%;
-      overflow-x:auto;
-      overflow-y:hidden;
-      background:white;
-  }
-
-  #svg {
-      position:relative;
-      min-width:2200px;
-      height:100%;
+      cursor:default;
   }
 
   #tooltip {
@@ -40,6 +32,7 @@
       pointer-events:none;
       display:none;
       max-width:350px;
+      line-height:1.4em;
       z-index:100;
   }
 
@@ -63,18 +56,14 @@
       font-size:18px;
       font-weight:bold;
   }
-  #zoom-controls button:hover {
-      background:#e5e5e5;
-  }
+  #zoom-controls button:hover { background:#e5e5e5; }
 
-  /* Brush selection rectangle */
   #brush {
       fill:rgba(150,150,150,0.25);
       stroke:#333;
       stroke-dasharray:4;
       pointer-events:none;
   }
-
 </style>
 </head>
 
@@ -87,19 +76,22 @@
 </div>
 
 <div id="tooltip"></div>
-
-<div id="scroll-container">
-   <svg id="svg"></svg>
-</div>
+<svg id="svg"></svg>
 
 <script>
 let DATA = null;
 let selected = new Set();
 
-/* Zoom state for brush zoom */
+/* Brush zoom state */
 let brushActive = false;
 let brushStartX = 0;
 let brushRect = null;
+
+/* Zoom/pan state */
+let scale = 1;
+let translateX = 0;
+let isDragging = false;
+let dragStartX = 0;
 
 window.addEventListener("message", evt => {
     if (evt.data?.type === "update") {
@@ -111,20 +103,38 @@ window.addEventListener("message", evt => {
 const svg = document.getElementById("svg");
 const tip = document.getElementById("tooltip");
 
+/* ============================================================
+   DRAW FUNCTION (v3.6)
+============================================================ */
 function draw() {
     if (!DATA) return;
 
-    const W = svg.clientWidth  || 2200;
-    const H = svg.clientHeight || 600;
+    const W = svg.clientWidth;
+    const H = svg.clientHeight;
+
+    /* Hybrid dynamic width (W3) */
+    let totalAbate = DATA.abatement.reduce((a,b)=>a+b,0);
+
+    let svgWidth = 
+        totalAbate < 50000 ? 2500 :
+        totalAbate < 150000 ? 3500 :
+        totalAbate < 300000 ? 4500 :
+                              6000;
+
+    /* Set SVG virtual width */
+    svg.setAttribute("viewBox", `0 0 ${svgWidth} ${H}`);
 
     svg.innerHTML = '<g id="viewport"></g>';
     const root = svg.querySelector("#viewport");
 
+    /* Reset transforms */
+    root.setAttribute("transform", "");
+
     const margin = { top:60, right:80, bottom:160, left:200 };
-    const innerW = W - margin.left - margin.right;
+    const innerW = svgWidth - margin.left - margin.right;
     const innerH = H - margin.top - margin.bottom;
 
-    /* Data sanitize */
+    /* Prepare dataset */
     const rows = DATA.project.map((p,i)=>({
         name: p,
         cat: DATA.category[i],
@@ -136,20 +146,20 @@ function draw() {
         opex: Number(DATA.opex[i])||0
     }));
 
-    const clean = rows.filter(r => Number.isFinite(r.abate) && Number.isFinite(r.mac));
-    if (clean.length === 0) return;
+    const clean = rows.filter(r=>Number.isFinite(r.mac) && Number.isFinite(r.abate));
+    if (clean.length===0) return;
 
-    clean.sort((a,b)=> a.mac - b.mac);
+    clean.sort((a,b)=>a.mac-b.mac);
 
-    /* Cumulative abatement */
-    let total = 0;
-    clean.forEach(r => {
-        r.x0 = total;
-        total += r.abate;
-        r.x1 = total;
+    /* Cumulative x0,x1 */
+    let cumAb = 0;
+    clean.forEach(r=>{
+        r.x0 = cumAb;
+        cumAb += r.abate;
+        r.x1 = cumAb;
     });
 
-    const x = v => margin.left + (v / total) * innerW;
+    const x = v => margin.left + (v / totalAbate) * innerW;
 
     function macColor(v){
         if (v <= -1000) return "#238b45";
@@ -161,130 +171,117 @@ function draw() {
         return "#e31a1c";
     }
 
-    /* Y scale auto-fit */
-    const vals = clean.map(r => r.mac);
-    let min = Math.min(...vals);
-    let max = Math.max(...vals);
+    /* Y auto-fit */
+    let minMAC = Math.min(...clean.map(r=>r.mac));
+    let maxMAC = Math.max(...clean.map(r=>r.mac));
+    const PAD = (maxMAC - minMAC) * 0.15;
+    minMAC -= PAD;
+    maxMAC += PAD;
 
-    const PAD  = (max - min) * 0.15;
-    max += PAD;
-    min -= PAD;
-
-    const y = v =>
-        margin.top + (1 - (v - min) / (max - min)) * innerH;
-
+    const y = val => margin.top + (1 - (val - minMAC)/(maxMAC-minMAC)) * innerH;
     const y0 = y(0);
 
-    /* Background grid */
-    const yTicks = 6;
-    const xTicks = 6;
+    /* Grid */
+    const yTicks=6, xTicks=6;
 
-    for (let i=0; i<=yTicks;i++){
-        const v=min+(i/yTicks)*(max-min);
-        const yPos=y(v);
-
+    for(let i=0;i<=yTicks;i++){
+        const v=minMAC + (i/yTicks)*(maxMAC-minMAC);
+        const ypos=y(v);
         const gl=document.createElementNS(svg.namespaceURI,"line");
-        gl.setAttribute("x1", margin.left);
-        gl.setAttribute("x2", margin.left+innerW);
-        gl.setAttribute("y1", yPos);
-        gl.setAttribute("y2", yPos);
+        gl.setAttribute("x1",margin.left);
+        gl.setAttribute("x2",margin.left+innerW);
+        gl.setAttribute("y1",ypos);
+        gl.setAttribute("y2",ypos);
         gl.setAttribute("stroke","#ddd");
         root.appendChild(gl);
     }
 
-    for (let i=0;i<=xTicks;i++){
-        const v=(i/xTicks)*total;
-        const xPos=x(v);
-
+    for(let i=0;i<=xTicks;i++){
+        const v=(i/xTicks)*totalAbate;
+        const xpos=x(v);
         const gl=document.createElementNS(svg.namespaceURI,"line");
-        gl.setAttribute("x1", xPos);
-        gl.setAttribute("x2", xPos);
-        gl.setAttribute("y1", margin.top);
-        gl.setAttribute("y2", margin.top+innerH);
+        gl.setAttribute("x1",xpos);
+        gl.setAttribute("x2",xpos);
+        gl.setAttribute("y1",margin.top);
+        gl.setAttribute("y2",margin.top+innerH);
         gl.setAttribute("stroke","#eee");
         root.appendChild(gl);
     }
 
     /* Zero line */
     const zl=document.createElementNS(svg.namespaceURI,"line");
-    zl.setAttribute("x1", margin.left);
-    zl.setAttribute("x2", margin.left+innerW);
-    zl.setAttribute("y1", y0);
-    zl.setAttribute("y2", y0);
+    zl.setAttribute("x1",margin.left);
+    zl.setAttribute("x2",margin.left+innerW);
+    zl.setAttribute("y1",y0);
+    zl.setAttribute("y2",y0);
     zl.setAttribute("stroke","#0044aa");
     zl.setAttribute("stroke-width","1.5");
     root.appendChild(zl);
 
     /* Target line */
     const TARGET=60000;
-    if (TARGET<total){
-        const tx = x(TARGET);
-
+    if(TARGET<totalAbate){
+        const tx=x(TARGET);
         const tl=document.createElementNS(svg.namespaceURI,"line");
         tl.setAttribute("x1",tx);
         tl.setAttribute("x2",tx);
         tl.setAttribute("y1",margin.top);
         tl.setAttribute("y2",margin.top+innerH);
         tl.setAttribute("stroke","black");
-        tl.setAttribute("stroke-dasharray","6,4");
         tl.setAttribute("stroke-width","2");
+        tl.setAttribute("stroke-dasharray","6,4");
         root.appendChild(tl);
 
-        const label=document.createElementNS(svg.namespaceURI,"text");
-        label.textContent="Target: 60,000 tCO₂e";
-        label.setAttribute("x",tx+10);
-        label.setAttribute("y",margin.top-18);
-        label.setAttribute("font-size","14");
-        root.appendChild(label);
+        const lbl=document.createElementNS(svg.namespaceURI,"text");
+        lbl.textContent="Target: 60,000 tCO₂e";
+        lbl.setAttribute("x",tx+10);
+        lbl.setAttribute("y",margin.top-18);
+        lbl.setAttribute("font-size","14");
+        root.appendChild(lbl);
     }
 
-    /* Y-axis ticks */
-    for (let i=0;i<=yTicks;i++){
-        const v=min+(i/yTicks)*(max-min);
-        const yPos=y(v);
-
+    /* Axis ticks */
+    for(let i=0;i<=yTicks;i++){
+        const v=minMAC+(i/yTicks)*(maxMAC-minMAC);
+        const pos=y(v);
         const t=document.createElementNS(svg.namespaceURI,"line");
         t.setAttribute("x1",margin.left-6);
         t.setAttribute("x2",margin.left);
-        t.setAttribute("y1",yPos);
-        t.setAttribute("y2",yPos);
+        t.setAttribute("y1",pos);
+        t.setAttribute("y2",pos);
         t.setAttribute("stroke","#444");
         root.appendChild(t);
-
         const lab=document.createElementNS(svg.namespaceURI,"text");
         lab.textContent=Math.round(v).toLocaleString();
         lab.setAttribute("x",margin.left-10);
-        lab.setAttribute("y",yPos+4);
+        lab.setAttribute("y",pos+4);
         lab.setAttribute("text-anchor","end");
         lab.setAttribute("font-size","14");
         root.appendChild(lab);
     }
 
-    /* X-axis ticks */
-    for (let i=0;i<=xTicks;i++){
-        const v=(i/xTicks)*total;
-        const xPos=x(v);
-
+    for(let i=0;i<=xTicks;i++){
+        const v=(i/xTicks)*totalAbate;
+        const pos=x(v);
         const t=document.createElementNS(svg.namespaceURI,"line");
-        t.setAttribute("x1",xPos);
-        t.setAttribute("x2",xPos);
+        t.setAttribute("x1",pos);
+        t.setAttribute("x2",pos);
         t.setAttribute("y1",y0);
         t.setAttribute("y2",y0+8);
         t.setAttribute("stroke","#444");
         root.appendChild(t);
-
         const lab=document.createElementNS(svg.namespaceURI,"text");
         lab.textContent=v.toLocaleString()+" tCO₂e";
-        lab.setAttribute("x",xPos);
+        lab.setAttribute("x",pos);
         lab.setAttribute("y",y0+24);
         lab.setAttribute("text-anchor","middle");
         lab.setAttribute("font-size","14");
         root.appendChild(lab);
     }
 
-    /* Multi-select & bar events */
+    /* Multi-select */
     function toggleSelect(d, rect){
-        if (selected.has(d.name)){
+        if(selected.has(d.name)){
             selected.delete(d.name);
             rect.setAttribute("stroke","#333");
             rect.setAttribute("stroke-width","1.2");
@@ -300,10 +297,9 @@ function draw() {
         },"*");
     }
 
-    clean.forEach(d => {
-
+    /* Bars */
+    clean.forEach(d=>{
         const rect=document.createElementNS(svg.namespaceURI,"rect");
-
         rect.setAttribute("x",x(d.x0));
         rect.setAttribute("width",Math.max(8,x(d.abate)-x(0)));
         rect.setAttribute("y",d.mac>=0?y(d.mac):y0);
@@ -313,7 +309,8 @@ function draw() {
         rect.setAttribute("stroke-width",selected.has(d.name)?"3":"1.2");
         rect.style.cursor="pointer";
 
-        const txt=`
+        /* Tooltip */
+        const html = `
 <b>${d.name}</b><br>
 Category: ${d.cat}<br>
 MAC: ${d.mac}<br>
@@ -323,25 +320,20 @@ NPV: ${d.npv}<br>
 Capex: ${d.capex}<br>
 Opex: ${d.opex}`;
 
-        rect.addEventListener("mouseover",()=>{ tip.style.display="block"; tip.innerHTML=txt; });
-        rect.addEventListener("mouseout", ()=> tip.style.display="none");
-
+        rect.addEventListener("mouseover",()=>{ tip.style.display="block"; tip.innerHTML=html; });
+        rect.addEventListener("mouseout",()=> tip.style.display="none");
         rect.addEventListener("mousemove",evt=>{
-            let tx=evt.pageX+15;
-            let ty=evt.pageY-20;
-
+            let tx=evt.clientX+15;
+            let ty=evt.clientY-20;
             if (tx+tip.offsetWidth > window.innerWidth-10)
-                tx=evt.pageX-tip.offsetWidth-15;
-
+                tx=evt.clientX-tip.offsetWidth-15;
             if (ty<10)
-                ty=evt.pageY+20;
-
+                ty=evt.clientY+20;
             tip.style.left=tx+"px";
             tip.style.top=ty+"px";
         });
 
-        /* C1: Bar selection remains active inside zoom */
-        rect.addEventListener("click",()=>toggleSelect(d,rect));
+        rect.addEventListener("click",()=> toggleSelect(d,rect));
 
         root.appendChild(rect);
     });
@@ -365,110 +357,97 @@ Opex: ${d.opex}`;
     root.appendChild(ylab);
 
     /* ============================================================
-       BRUSH ZOOM (Option C1 + Z1)
+       BRUSH ZOOM (v3.6, S2, Z1)
     ============================================================ */
 
     svg.onmousedown = function(evt){
-        const target = evt.target;
-
-        // Start brush only if clicking on background
-        if (target.tagName === "rect" || target.tagName === "text")
-            return; 
+        if (evt.target.tagName === "rect" || evt.target.tagName === "text") return;
 
         brushActive = true;
         brushStartX = evt.offsetX;
 
         brushRect = document.createElementNS(svg.namespaceURI,"rect");
-        brushRect.setAttribute("id","brush");
-        brushRect.setAttribute("x",brushStartX);
-        brushRect.setAttribute("y",margin.top);
-        brushRect.setAttribute("width",0);
-        brushRect.setAttribute("height",innerH);
+        brushRect.id="brush";
+        brushRect.setAttribute("x", brushStartX);
+        brushRect.setAttribute("y", margin.top);
+        brushRect.setAttribute("width", 0);
+        brushRect.setAttribute("height", innerH);
         svg.appendChild(brushRect);
     };
 
     svg.onmousemove = function(evt){
-        if (!brushActive) return;
+        if(!brushActive) return;
 
         const currentX = evt.offsetX;
 
-        /* Z1: Only allow left → right draws */
-        if (currentX < brushStartX) {
+        if(currentX < brushStartX){
             brushRect.setAttribute("width",0);
-            return;
+            return; 
         }
 
         brushRect.setAttribute("width", currentX - brushStartX);
     };
 
     svg.onmouseup = function(evt){
-        if (!brushActive) return;
+        if(!brushActive) return;
         brushActive = false;
 
         const endX = evt.offsetX;
 
-        /* Ignore clicks with no width */
-        if (endX <= brushStartX + 5){
+        if(endX <= brushStartX + 10){
             svg.removeChild(brushRect);
             return;
         }
 
-        const zoomMinX = brushStartX;
-        const zoomMaxX = endX;
-
         svg.removeChild(brushRect);
 
-        // Convert pixel range to abatement values
-        const newMin = total * ( (zoomMinX-margin.left) / innerW );
-        const newMax = total * ( (zoomMaxX-margin.left) / innerW );
+        const pxMin = brushStartX;
+        const pxMax = endX;
 
-        // Filter bars in range
-        const inView = clean.filter(d => d.x1 >= newMin && d.x0 <= newMax);
+        const xMin = totalAbate * ((pxMin - margin.left)/innerW);
+        const xMax = totalAbate * ((pxMax - margin.left)/innerW);
 
-        if (inView.length === 0){
+        const inRange = clean.filter(d=> d.x1 >= xMin && d.x0 <= xMax);
+
+        if(inRange.length===0){
             draw();
             return;
         }
 
-        // Auto-fit Y
-        const ys = inView.map(d=>d.mac);
-        min=Math.min(...ys);
-        max=Math.max(...ys);
-        min -= PAD;
-        max += PAD;
+        /* Fit Y to zoomed subset */
+        minMAC = Math.min(...inRange.map(d=>d.mac));
+        maxMAC = Math.max(...inRange.map(d=>d.mac));
+        minMAC -= PAD; 
+        maxMAC += PAD;
 
-        // Rerender restricted axes & bars
-        renderZoomed(newMin,newMax,min,max);
+        /* Zoom by applying SVG transform */
+        const zoomFactor = innerW / (pxMax - pxMin);
+
+        translateX = -pxMin * zoomFactor + margin.left;
+        scale = zoomFactor;
+
+        applyTransform();
     };
 
-    /* Reset zoom on double-click */
+    /* Double-click to reset */
     svg.ondblclick = function(){
-        scale=1; translateX=0;
-        draw();
+        scale = 1;
+        translateX = 0;
+        applyTransform();
     };
 }
 
-/* Render zoomed region */
-function renderZoomed(xMin,xMax,min,max){
-    /* Keep DATA and selected state */
-    const evt = new Event("force-redraw");
-    DATA._zoomState = { xMin,xMax,min,max };
-    draw();  // For now, full redraw is simplest
-}
-
-/* ============================================================
-   ZOOM BUTTONS + PAN (same as v3.4)
-============================================================ */
-let scale=1, translateX=0, isDragging=false, startX=0;
-
+/* PAN + ZOOM BUTTONS */
 function applyTransform(){
-    const root=svg.querySelector("#viewport");
-    root.setAttribute("transform",`translate(${translateX},0) scale(${scale})`);
+    const root = svg.querySelector("#viewport");
+    root.setAttribute("transform",
+        `translate(${translateX},0) scale(${scale},1)`
+    );
 }
 
 document.getElementById("zoom-in").onclick = ()=>{ scale=Math.min(scale+0.2,5); applyTransform(); };
 document.getElementById("zoom-out").onclick = ()=>{ scale=Math.max(scale-0.2,0.3); applyTransform(); };
-document.getElementById("zoom-reset").onclick = ()=>{ scale=1; translateX=0; applyTransform(); draw(); };
+document.getElementById("zoom-reset").onclick = ()=>{ scale=1; translateX=0; applyTransform(); };
 
 svg.addEventListener("wheel",evt=>{
     evt.preventDefault();
@@ -478,18 +457,21 @@ svg.addEventListener("wheel",evt=>{
 });
 
 svg.addEventListener("mousedown",evt=>{
+    if(evt.button!==0) return;
     isDragging=true;
-    startX=evt.clientX-translateX;
+    dragStartX=evt.clientX-translateX;
 });
 svg.addEventListener("mousemove",evt=>{
     if(isDragging){
-        translateX=evt.clientX-startX;
+        translateX=evt.clientX-dragStartX;
         applyTransform();
     }
 });
 svg.addEventListener("mouseup",()=>isDragging=false);
 svg.addEventListener("mouseleave",()=>isDragging=false);
 
+window.addEventListener("resize", draw);
 </script>
+
 </body>
 </html>
