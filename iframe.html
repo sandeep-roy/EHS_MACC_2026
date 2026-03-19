@@ -218,7 +218,7 @@ function drawXTicks() {
 
     // ---- DRIFT FIX: convert chart-space X to screen-space X ----
     function worldToScreenX(xValue) {
-        return xValue * scale + translateX;
+         return margin.left + ( (xLocal - margin.left) * scale ) + translateX;
     }
 
     for (let i = 0; i <= 6; i++) {
