@@ -63,7 +63,7 @@
 <script>
 
 // ===================================================================
-// CHART STATE
+// STATE
 // ===================================================================
 let DATA=null, selected=new Set();
 let scale=1;
@@ -101,17 +101,11 @@ function draw() {
         <g id="gridLayer"></g>
         <g id="yAxisLayer"></g>
 
-        <!-- Axis for tick LINES (scaled) -->
-        <g id="axisLayer"></g>
+        <g id="axisLayer"></g>        <!-- tick LINES (scaled) -->
+        <g id="barLayer" clip-path="url(#plotClip)"></g> <!-- bars (scaled) -->
 
-        <!-- Bars layer (scaled) -->
-        <g id="barLayer" clip-path="url(#plotClip)"></g>
-
-        <!-- Tick-label layer (NOT scaled) -->
-        <g id="xTickTextLayer"></g>
-
-        <!-- X-axis label layer (NOT scaled) -->
-        <g id="xAxisLabelLayer"></g>
+        <g id="xTickTextLayer"></g>  <!-- tick LABELS (NOT scaled) -->
+        <g id="xAxisLabelLayer"></g> <!-- X-axis LABEL (NOT scaled) -->
     `;
 
     const gridLayer        = svg.querySelector("#gridLayer");
@@ -121,7 +115,6 @@ function draw() {
     const xTickTextLayer   = svg.querySelector("#xTickTextLayer");
     const xAxisLabelLayer  = svg.querySelector("#xAxisLabelLayer");
 
-    // RESET zoom
     scale = 1;
     translateX = 0;
 
@@ -135,7 +128,7 @@ function draw() {
     clip.setAttribute("width", innerW);
     clip.setAttribute("height", innerH);
 
-    // BUILD DATA ROWS
+    // DATA PREP
     const rows = DATA.project.map((p,i)=>({
         name: p,
         cat:  DATA.category[i],
@@ -147,13 +140,11 @@ function draw() {
         opex: +DATA.opex[i]       || 0
     }));
 
-    // CLEAN + SORT
     const clean = rows.filter(r=>isFinite(r.abate)&&isFinite(r.mac));
     if(!clean.length) return;
 
     clean.sort((a,b)=>a.mac - b.mac);
 
-    // CUMULATIVE POSITIONING
     let totalAb = clean.reduce((s,r)=>s+r.abate,0);
     let cum = 0;
     clean.forEach(r=>{
@@ -165,7 +156,6 @@ function draw() {
     const scaleX = innerW / totalAb;
     const x = v => margin.left + v * scaleX;
 
-    // Y Limits
     let minMAC = Math.min(...clean.map(r=>r.mac));
     let maxMAC = Math.max(...clean.map(r=>r.mac));
     const PAD = (maxMAC-minMAC)*0.15;
@@ -173,7 +163,7 @@ function draw() {
     maxMAC += PAD;
 
     const y = val => margin.top + (1 - (val-minMAC)/(maxMAC-minMAC)) * innerH;
-    const y0 = y(0);  // Zero line screen Y
+    const y0 = y(0);
 
     // ===================================================================
     // GRIDLINES
@@ -239,14 +229,26 @@ function draw() {
     }
 
     // ===================================================================
-    // CONVERT CHART-SPACE → SCREEN-SPACE  (Option B)
+    // CHART-SPACE → SCREEN-SPACE
+    // Option‑B transform uses scale → translate, so:
+    //
+    // screenX = margin.left + (xLocal - margin.left) * scale + translateX
     // ===================================================================
     function worldToScreenX(xLocal) {
         return margin.left + ((xLocal - margin.left) * scale) + translateX;
     }
 
     // ===================================================================
-    // DRAW X-TICKS  (Corrected for Option B)
+    // X-TICK LABEL FORMATTER — ROUND TO NEAREST 10k
+    // ===================================================================
+    function formatShortNumber(num) {
+        let rounded = Math.round(num / 10000) * 10000;
+        if (rounded >= 1000) return (rounded/1000) + "k";
+        return rounded.toString();
+    }
+
+    // ===================================================================
+    // DRAW X-TICKS  (scaled lines, unscaled text)
     // ===================================================================
     function drawXTicks(){
 
@@ -257,13 +259,10 @@ function draw() {
 
             let v = i/6 * totalAb;
 
-            // chart-space X
             let xLocal = margin.left + v * scaleX;
-
-            // screen-space X
             let xScreen = worldToScreenX(xLocal);
 
-            // TICK LINE (scaled)
+            // SCALED tick line
             let tl = document.createElementNS(svg.namespaceURI,"line");
             tl.classList.add("xtick");
             tl.setAttribute("x1", xLocal);
@@ -273,10 +272,10 @@ function draw() {
             tl.setAttribute("stroke", "#444");
             axisLayer.appendChild(tl);
 
-            // TICK LABEL (NOT scaled)
+            // STATIC tick label
             let lab = document.createElementNS(svg.namespaceURI,"text");
             lab.classList.add("xtickText");
-            lab.textContent = v.toLocaleString() + " tCO₂e";
+            lab.textContent = formatShortNumber(v);
             lab.setAttribute("x", xScreen);
             lab.setAttribute("y", margin.top + innerH + 30);
             lab.setAttribute("text-anchor","middle");
@@ -306,10 +305,10 @@ function draw() {
     });
 
     // ===================================================================
-    // X AXIS LABEL  (NOT scaled)
+    // X AXIS LABEL (NOT scaled)
     // ===================================================================
     let xlab = document.createElementNS(svg.namespaceURI,"text");
-    xlab.textContent = "Total Abatement (tCO₂e)";
+    xlab.textContent = "Total Abatement";
     xlab.setAttribute("x", margin.left + innerW/2);
     xlab.setAttribute("y", margin.top + innerH + 55);
     xlab.setAttribute("text-anchor","middle");
@@ -329,7 +328,7 @@ function draw() {
     yAxisLayer.appendChild(ylab);
 
     // ===================================================================
-    // TOOLTIP (UNCHANGED)
+    // TOOLTIP
     // ===================================================================
     svg.addEventListener("mousemove", evt=>{
         let el = document.elementFromPoint(evt.clientX, evt.clientY);
@@ -352,7 +351,7 @@ function draw() {
     });
 
     // ===================================================================
-    // OPTION B — SCALE → TRANSLATE  TRANSFORM
+    // OPTION B — APPLY TRANSFORM (scale → translate)
     // ===================================================================
     function applyTransform() {
 
@@ -365,7 +364,7 @@ function draw() {
     }
 
     // ===================================================================
-    // CLAMP FOR OPTION B
+    // OPTION B — CLAMP
     // ===================================================================
     function clampTransform() {
 
@@ -385,7 +384,7 @@ function draw() {
     }
 
     // ===================================================================
-    // ZOOM + PAN HANDLERS
+    // ZOOM + PAN EVENT HANDLERS
     // ===================================================================
     svg.addEventListener("wheel", evt=>{
         evt.preventDefault();
