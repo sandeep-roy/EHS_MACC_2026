@@ -1,109 +1,159 @@
-
 <!DOCTYPE html>
-<html><head><meta charset='UTF-8'>
+<html>
+<head>
+<meta charset='UTF-8'>
 <style>
- html,body{width:100%;height:100%;margin:0;padding:0;overflow:hidden;font-family:Arial}
- #svg{position:absolute;width:100%;height:100%}
- #tooltip{position:absolute;background:rgba(0,0,0,.85);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px;pointer-events:none;display:none;max-width:350px;line-height:1.2em;z-index:100}
- #zoom-controls{position:absolute;top:10px;right:10px;display:flex;flex-direction:column;gap:6px;z-index:200}
- #zoom-controls button{background:#fff;border:1px solid #444;border-radius:5px;width:32px;height:32px;cursor:pointer;font-size:18px;font-weight:bold}
- #zoom-controls button:hover{background:#e5e5e5}
+    html,body {
+        width:100%;
+        height:100%;
+        margin:0;
+        padding:0;
+        overflow:hidden;
+        font-family:Arial;
+    }
+    #svg { position:absolute; width:100%; height:100%; }
+    #tooltip {
+        position:absolute;
+        background:rgba(0,0,0,.85);
+        color:#fff;
+        padding:6px 10px;
+        border-radius:4px;
+        font-size:12px;
+        pointer-events:none;
+        display:none;
+        max-width:350px;
+        line-height:1.2em;
+        z-index:100;
+    }
+    #zoom-controls {
+        position:absolute;
+        top:10px;
+        right:10px;
+        display:flex;
+        flex-direction:column;
+        gap:6px;
+        z-index:200;
+    }
+    #zoom-controls button {
+        background:#fff;
+        border:1px solid #444;
+        border-radius:5px;
+        width:32px;
+        height:32px;
+        cursor:pointer;
+        font-size:18px;
+        font-weight:bold;
+    }
+    #zoom-controls button:hover {
+        background:#e5e5e5;
+    }
 </style>
 </head>
+
 <body>
 <div id='zoom-controls'>
- <button id='zoom-in'>+</button>
- <button id='zoom-out'>-</button>
- <button id='zoom-reset'>⟳</button>
+    <button id='zoom-in'>+</button>
+    <button id='zoom-out'>-</button>
+    <button id='zoom-reset'>⟳</button>
 </div>
+
 <div id='tooltip'></div>
-<svg id='svg'></svg>
+<svg id="svg"></svg>
+
 <script>
+
+// --- unchanged top state ---
 let DATA=null, selected=new Set();
 let scale=1, translateX=0, dragging=false, dragStartX=0;
 
-window.addEventListener('message', e => {
-    if (e.data?.type === 'update') {
+window.addEventListener('message', e=>{
+    if(e.data?.type === 'update') {
         DATA = e.data.payload;
         draw();
     }
 });
 
-const svg = document.getElementById('svg');
-const tip = document.getElementById('tooltip');
+const svg = document.getElementById("svg");
+const tip = document.getElementById("tooltip");
 
 function draw() {
-    if (!DATA) return;
 
-    const W = svg.clientWidth, H = svg.clientHeight;
+    if(!DATA) return;
+
+    const W = svg.clientWidth;
+    const H = svg.clientHeight;
 
     svg.innerHTML = `
-      <defs>
-        <clipPath id='plotClip'>
-          <rect id='clipRect' x='0' y='0' width='${W}' height='${H}'></rect>
-        </clipPath>
-      </defs>
-      <g id='gridLayer'></g>
-      <g id='axisLayer'></g>
-      <g id='barLayer' clip-path='url(#plotClip)'></g>
+        <defs>
+            <clipPath id="plotClip">
+                <rect id="clipRect" x="0" y="0" width="${W}" height="${H}"></rect>
+            </clipPath>
+        </defs>
+
+        <g id="gridLayer"></g>
+        <g id="yAxisLayer"></g>
+        <g id="axisLayer"></g>
+        <g id="barLayer" clip-path="url(#plotClip)"></g>
+        <g id="xAxisLabelLayer"></g>   <!-- PATCH: X-axis label isolated -->
     `;
 
-    const gridLayer = svg.querySelector('#gridLayer');
-    const axisLayer = svg.querySelector('#axisLayer');
-    const barLayer  = svg.querySelector('#barLayer');
+    const gridLayer = svg.querySelector("#gridLayer");
+    const axisLayer = svg.querySelector("#axisLayer");
+    const barLayer = svg.querySelector("#barLayer");
+    const yAxisLayer = svg.querySelector("#yAxisLayer");
+    const xAxisLabelLayer = svg.querySelector("#xAxisLabelLayer");
 
     scale = 1;
     translateX = 0;
 
-    const margin={ top:60, right:80, bottom:150, left:200 };
-    const innerW=Math.max(500, W-margin.left-margin.right);
-    const innerH=H-margin.top-margin.bottom;
+    const margin = { top:60, right:80, bottom:150, left:200 };
+    const innerW = Math.max(500, W - margin.left - margin.right);
+    const innerH = H - margin.top - margin.bottom;
 
     const clip = svg.querySelector("#clipRect");
-    clip.setAttribute('x',margin.left);
-    clip.setAttribute('y',margin.top);
-    clip.setAttribute('width',innerW);
-    clip.setAttribute('height',innerH);
+    clip.setAttribute("x", margin.left);
+    clip.setAttribute("y", margin.top);
+    clip.setAttribute("width", innerW);
+    clip.setAttribute("height", innerH);
 
+    // --- data prep ---
     const rows = DATA.project.map((p,i)=>({
         name:p,
         cat:DATA.category[i],
-        abate:+DATA.abatement[i]||0,
-        mac:+DATA.mac[i]||0,
-        cum:+DATA.cumulative[i]||0,
-        npv:+DATA.npv[i]||0,
-        capex:+DATA.capex[i]||0,
-        opex:+DATA.opex[i]||0
+        abate:+DATA.abatement[i] || 0,
+        mac:+DATA.mac[i] || 0,
+        cum:+DATA.cumulative[i] || 0,
+        npv:+DATA.npv[i] || 0,
+        capex:+DATA.capex[i] || 0,
+        opex:+DATA.opex[i] || 0
     }));
 
-    const clean = rows.filter(r=>isFinite(r.abate)&&isFinite(r.mac));
-    if (!clean.length) return;
+    const clean = rows.filter(r => isFinite(r.abate) && isFinite(r.mac));
+    if(!clean.length) return;
 
     clean.sort((a,b)=>a.mac - b.mac);
 
-    let totalAb=clean.reduce((s,r)=>s+r.abate,0);
+    let totalAb = clean.reduce((s,r)=>s+r.abate,0);
     let cum=0;
-    clean.forEach(r => { r.x0=cum; cum+=r.abate; r.x1=cum; });
+    clean.forEach(r=>{ r.x0=cum; cum+=r.abate; r.x1=cum; });
 
     const scaleX = innerW / totalAb;
     const x = v => margin.left + v * scaleX;
 
-    const macColor = v => v < 0 ? "#74c476" : "#fdae6b";
-
-    let minMAC=Math.min(...clean.map(r=>r.mac));
-    let maxMAC=Math.max(...clean.map(r=>r.mac));
-    const PAD=(maxMAC-minMAC)*0.15;
+    let minMAC = Math.min(...clean.map(r=>r.mac));
+    let maxMAC = Math.max(...clean.map(r=>r.mac));
+    const PAD = (maxMAC - minMAC)*0.15;
     minMAC -= PAD;
     maxMAC += PAD;
 
-    const y = val => margin.top + (1-(val-minMAC)/(maxMAC-minMAC))*innerH;
+    const y = val => margin.top + (1 - (val-minMAC)/(maxMAC-minMAC)) * innerH;
     const y0 = y(0);
 
-    // ----- gridlines -----
-    for (let i=0;i<=6;i++){
-        let v=minMAC+i/6*(maxMAC-minMAC);
-        let ypos=y(v);
-        let line=document.createElementNS(svg.namespaceURI,'line');
+    // --- gridlines ---
+    for(let i=0;i<=6;i++) {
+        let v = minMAC + i/6*(maxMAC-minMAC);
+        let ypos = y(v);
+        let line = document.createElementNS(svg.namespaceURI,'line');
         line.setAttribute('x1',margin.left);
         line.setAttribute('x2',margin.left+innerW);
         line.setAttribute('y1',ypos);
@@ -112,10 +162,10 @@ function draw() {
         gridLayer.appendChild(line);
     }
 
-    for (let i=0;i<=6;i++){
-        let v=i/6*totalAb;
-        let xpos=x(v);
-        let line=document.createElementNS(svg.namespaceURI,'line');
+    for(let i=0;i<=6;i++){
+        let v = i/6*totalAb;
+        let xpos = x(v);
+        let line = document.createElementNS(svg.namespaceURI,'line');
         line.setAttribute('x1',xpos);
         line.setAttribute('x2',xpos);
         line.setAttribute('y1',margin.top);
@@ -124,177 +174,181 @@ function draw() {
         gridLayer.appendChild(line);
     }
 
-    // ----- zero line -----
-    {
-        let zl=document.createElementNS(svg.namespaceURI,'line');
-        zl.setAttribute('x1',margin.left);
-        zl.setAttribute('x2',margin.left+innerW);
-        zl.setAttribute('y1',y0);
-        zl.setAttribute('y2',y0);
-        zl.setAttribute('stroke','#0044aa');
-        zl.setAttribute('stroke-width','1.5');
-        axisLayer.appendChild(zl);
-    }
+    // --- ZERO LINE ---
+    let zl = document.createElementNS(svg.namespaceURI,'line');
+    zl.setAttribute('x1', margin.left);
+    zl.setAttribute('x2', margin.left + innerW);
+    zl.setAttribute('y1', y0);
+    zl.setAttribute('y2', y0);
+    zl.setAttribute('stroke', '#0044aa');
+    zl.setAttribute('stroke-width','1.5');
+    axisLayer.appendChild(zl);
 
-    // ----- Y ticks -----
-    for (let i=0;i<=6;i++){
-        let v=minMAC+i/6*(maxMAC-minMAC);
-        let pos=y(v);
-        let tick=document.createElementNS(svg.namespaceURI,'line');
+    // --- Y ticks (STATIC, do not transform) ---
+    for(let i=0;i<=6;i++){
+        let v = minMAC + i/6*(maxMAC-minMAC);
+        let pos = y(v);
+
+        let tick = document.createElementNS(svg.namespaceURI,'line');
         tick.setAttribute('x1',margin.left-6);
         tick.setAttribute('x2',margin.left);
         tick.setAttribute('y1',pos);
         tick.setAttribute('y2',pos);
         tick.setAttribute('stroke','#444');
-        axisLayer.appendChild(tick);
+        yAxisLayer.appendChild(tick);
 
-        let lab=document.createElementNS(svg.namespaceURI,"text");
-        lab.textContent=Math.round(v).toLocaleString();
-        lab.setAttribute('x',margin.left-10);
-        lab.setAttribute('y',pos+4);
+        let lab = document.createElementNS(svg.namespaceURI,'text');
+        lab.textContent = Math.round(v).toLocaleString();
+        lab.setAttribute('x', margin.left-10);
+        lab.setAttribute('y', pos+4);
         lab.setAttribute('text-anchor','end');
         lab.setAttribute('font-size','14');
-        axisLayer.appendChild(lab);
+        yAxisLayer.appendChild(lab);
     }
 
-    // ---- x ticks ----
+    // --- draw X ticks (UNSCALED positions) ---
     function drawXTicks() {
         axisLayer.querySelectorAll(".xtick").forEach(e=>e.remove());
-        for (let i=0;i<=6;i++){
-            let v=i/6*totalAb;
-            let pos = margin.left + (v * scaleX * scale) + translateX;
 
-            let t=document.createElementNS(svg.namespaceURI,'line');
+        for(let i=0;i<=6;i++){
+            let v = i/6*totalAb;
+
+            //// PATCH: remove scaling & translation from tick calc
+            let pos = margin.left + v * scaleX;
+
+            // tick line
+            let t = document.createElementNS(svg.namespaceURI,'line');
             t.classList.add("xtick");
-            t.setAttribute('x1',pos);
-            t.setAttribute('x2',pos);
-            t.setAttribute('y1',y0);
-            t.setAttribute('y2',y0+8);
-            t.setAttribute('stroke','#444');
+            t.setAttribute('x1', pos);
+            t.setAttribute('x2', pos);
+            t.setAttribute('y1', y0);
+            t.setAttribute('y2', y0+8);
+            t.setAttribute('stroke', '#444');
             axisLayer.appendChild(t);
 
-            let lab=document.createElementNS(svg.namespaceURI,'text');
+            // tick label
+            let lab = document.createElementNS(svg.namespaceURI,'text');
             lab.classList.add("xtick");
-            lab.textContent=v.toLocaleString()+" tCO₂e";
-            lab.setAttribute('x',pos);
-            lab.setAttribute('y',y0+24);
+            lab.textContent = v.toLocaleString() + " tCO₂e";
+            lab.setAttribute('x', pos);
+            lab.setAttribute('y', y0+24);
             lab.setAttribute('text-anchor','middle');
             lab.setAttribute('font-size','14');
             axisLayer.appendChild(lab);
         }
     }
+
     drawXTicks();
 
-    // ----- bars -----
+    // --- bars ---
     clean.forEach(d=>{
-        let w=Math.max(4,(d.x1-d.x0)*scaleX);
-        let r=document.createElementNS(svg.namespaceURI,'rect');
-        r.setAttribute('x',x(d.x0));
-        r.setAttribute('width',w);
-        r.setAttribute('y',d.mac>=0?y(d.mac):y0);
-        r.setAttribute('height',Math.abs(y(d.mac)-y0));
-        r.setAttribute('fill',macColor(d.mac));
-        r.setAttribute('stroke',selected.has(d.name)?'black':'#333');
+        let w = Math.max(4, (d.x1 - d.x0) * scaleX);
+
+        let r = document.createElementNS(svg.namespaceURI,'rect');
+        r.setAttribute('x', x(d.x0));
+        r.setAttribute('width', w);
+        r.setAttribute('y', d.mac>=0 ? y(d.mac) : y0);
+        r.setAttribute('height', Math.abs(y(d.mac) - y0));
+        r.setAttribute('fill', d.mac<0 ? "#74c476" : "#fdae6b");
+        r.setAttribute('stroke', '#333');
         r.setAttribute('stroke-width','1.2');
-        r.style.cursor='pointer';
-        r.__data__=d;
+        r.style.cursor = 'pointer';
+        r.__data__ = d;
         barLayer.appendChild(r);
     });
 
-    // ----- X axis label (near zero line) -----
-    let xlab=document.createElementNS(svg.namespaceURI,'text');
-    xlab.textContent="Total Abatement (tCO₂e)";
+    // --- X-axis label (STATIC) ---
+    let xlab = document.createElementNS(svg.namespaceURI,'text');
+    xlab.textContent = "Total Abatement (tCO₂e)";
     xlab.setAttribute("x", margin.left + innerW/2);
-    xlab.setAttribute("y", y0 + 32);   // <<< moved up
-    xlab.setAttribute("text-anchor","middle");
-    xlab.setAttribute("font-size","18");
-    axisLayer.appendChild(xlab);
+    xlab.setAttribute("y", y0 + 32);
+    xlab.setAttribute("text-anchor", "middle");
+    xlab.setAttribute("font-size", "18");
+    xAxisLabelLayer.appendChild(xlab);
 
-    // ----- Y label -----
-    let ylab=document.createElementNS(svg.namespaceURI,'text');
+    // --- Y label ---
+    let ylab = document.createElementNS(svg.namespaceURI,'text');
     ylab.textContent="MAC (EUR/tCO₂e)";
     ylab.setAttribute("transform","rotate(-90)");
-    ylab.setAttribute("x",-H/2);
-    ylab.setAttribute("y",60);
+    ylab.setAttribute("x", -H/2);
+    ylab.setAttribute("y", 60);
     ylab.setAttribute("text-anchor","middle");
     ylab.setAttribute("font-size","18");
-    axisLayer.appendChild(ylab);
+    yAxisLayer.appendChild(ylab);
 
-    // ----- tooltip -----
+
+    // --- tooltip (unchanged) ---
     svg.addEventListener("mousemove", evt=>{
-        let el=document.elementFromPoint(evt.clientX,evt.clientY);
+        let el = document.elementFromPoint(evt.clientX,evt.clientY);
         if(el && el.tagName==="rect" && el.__data__){
-            let d=el.__data__;
+            let d = el.__data__;
             tip.style.display="block";
-            tip.style.left=(evt.clientX+12)+"px";
-            tip.style.top=(evt.clientY-20)+"px";
-            tip.innerHTML=`<b>${d.name}</b><br>
+            tip.style.left = (evt.clientX+12)+"px";
+            tip.style.top  = (evt.clientY-20)+"px";
+            tip.innerHTML = `
+                <b>${d.name}</b><br>
                 Category: ${d.cat}<br>
                 MAC: ${d.mac}<br>
                 Abatement: ${d.abate}<br>
                 Cumulative: ${d.cum}<br>
                 NPV: ${d.npv}<br>
                 Capex: ${d.capex}<br>
-                Opex: ${d.opex}`;
+                Opex: ${d.opex}
+            `;
         } else tip.style.display="none";
     });
 
-    // ----- FINAL CORRECT CLAMP -----
+    // -----------------------------
+    // PATCHED TRANSFORM SYSTEM
+    // -----------------------------
     function clampTransform() {
-    // Actual left screen position of first bar after scaling
-    const bar0_left = translateX + margin.left * scale;
+        const bar0_left  = translateX + margin.left * scale;
+        const grid_left  = margin.left;
+        const grid_right = margin.left + innerW;
+        const bar_right  = translateX + margin.left * scale + innerW * scale;
 
-    // Grid boundaries
-    const grid_left  = margin.left;
-    const grid_right = margin.left + innerW;
-
-    // Actual rightmost bar screen position after scaling
-    const bar_right = translateX + margin.left * scale + innerW * scale;
-
-    // ---- LEFT CLAMP ----
-    // Ensure first bar never moves left of Y-axis
-    if (bar0_left > grid_left) {
-        translateX -= (bar0_left - grid_left);
+        if(bar0_left > grid_left){
+            translateX -= (bar0_left - grid_left);
+        }
+        if(bar_right < grid_right){
+            translateX += (grid_right - bar_right);
+        }
     }
 
-    // ---- RIGHT CLAMP ----
-    // Ensure last bar never moves outside right boundary
-    if (bar_right < grid_right) {
-        translateX += (grid_right - bar_right);
-    }
-}
-
-    // ----- apply transform -----
+    //// PATCH: axisLayer now transforms with bars
     function applyTransform() {
-        barLayer.setAttribute("transform",
-          `translate(${translateX},0) scale(${scale},1)`
-        );
-        axisLayer.setAttribute("transform","translate(0,0)");
-        drawXTicks();
+        const transform = `translate(${translateX},0) scale(${scale},1)`;
+
+        barLayer.setAttribute("transform", transform);
+        axisLayer.setAttribute("transform", transform);
+
+        // IMPORTANT: yAxisLayer and xAxisLabelLayer stay UNTRANSFORMED
+
+        drawXTicks(); // recalculates in unscaled coordinates
     }
 
-    // ----- wheel zoom -----
+    // --- wheel zoom ---
     svg.addEventListener("wheel", evt=>{
         evt.preventDefault();
         const mx = evt.offsetX;
         const prev = scale;
-        const f = evt.deltaY < 0 ? 1.2 : 0.8;
+        const f = evt.deltaY<0 ? 1.2 : 0.8;
 
         scale = Math.min(Math.max(scale * f, 0.3), 5);
-        translateX = mx - (mx - translateX) * (scale / prev);
+        translateX = mx - (mx - translateX) * (scale/prev);
 
         clampTransform();
         applyTransform();
     });
 
-    // ----- pan -----
+    // --- panning ---
     svg.addEventListener("mousedown", evt=>{
         dragging = true;
         dragStartX = evt.clientX - translateX;
     });
 
     svg.addEventListener("mousemove", evt=>{
-        if (dragging){
+        if(dragging){
             translateX = evt.clientX - dragStartX;
             clampTransform();
             applyTransform();
@@ -303,13 +357,12 @@ function draw() {
 
     svg.addEventListener("mouseup", ()=> dragging=false);
 
-    // ----- zoom buttons -----
+    // --- zoom buttons ---
     document.getElementById("zoom-in").onclick = ()=>{
         const mx = svg.clientWidth/2;
         const prev = scale;
         scale = Math.min(scale + 0.2, 5);
         translateX = mx - (mx - translateX)*(scale/prev);
-
         clampTransform();
         applyTransform();
     };
@@ -319,7 +372,6 @@ function draw() {
         const prev = scale;
         scale = Math.max(scale - 0.2, 0.3);
         translateX = mx - (mx - translateX)*(scale/prev);
-
         clampTransform();
         applyTransform();
     };
@@ -332,6 +384,8 @@ function draw() {
     };
 }
 
-window.onresize = ()=> draw();
+window.onresize = ()=>draw();
+
 </script>
-</body></html>
+</body>
+</html>
