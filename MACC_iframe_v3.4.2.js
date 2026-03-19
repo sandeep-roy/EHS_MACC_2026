@@ -1,9 +1,8 @@
 (function () {
-
-  const template = document.createElement("template");
-  template.innerHTML = `
+  const template=document.createElement("template");
+  template.innerHTML=`
       <style>
-        :host { display:block; width:100%; height:100%; position:relative; }
+        :host { display:block; width:100%; height:100%; }
         iframe { position:absolute; top:0; left:0; width:100%; height:100%; border:none; }
       </style>
       <iframe id="frame"></iframe>
@@ -11,23 +10,23 @@
 
   class VariableWidthMACC extends HTMLElement {
 
-    constructor() {
+    constructor(){
       super();
-      this._shadow = this.attachShadow({ mode:"open" });
+      this._shadow=this.attachShadow({mode:"open"});
       this._shadow.appendChild(template.content.cloneNode(true));
-      this._frame = this._shadow.querySelector("#frame");
+      this._frame=this._shadow.querySelector("#frame");
 
-      this._data = {
-        project: [], category: [], abatement: [],
-        mac: [], cumulative: [], npv: [], capex: [], opex: []
+      this._data={
+        project:[],category:[],abatement:[],
+        mac:[],cumulative:[],npv:[],capex:[],opex:[]
       };
 
-      this._onMessage = this._onMessage.bind(this);
+      this._onMessage=this._onMessage.bind(this);
     }
 
-    getDataBindings() {
+    getDataBindings(){
       return {
-        maccBinding: {
+        maccBinding:{
           feeds:[
             {id:"dimension",type:"dimension"},
             {id:"dimension_cat",type:"dimension"},
@@ -42,16 +41,16 @@
       };
     }
 
-    connectedCallback(){ window.addEventListener("message",this._onMessage); }
-    disconnectedCallback(){ window.removeEventListener("message",this._onMessage); }
+    connectedCallback(){window.addEventListener("message",this._onMessage);}
+    disconnectedCallback(){window.removeEventListener("message",this._onMessage);}
 
-    onCustomWidgetBeforeUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
-    onCustomWidgetAfterUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
+    onCustomWidgetBeforeUpdate(p){if(p.maccBinding)this._ingest(p.maccBinding);}
+    onCustomWidgetAfterUpdate(p){if(p.maccBinding)this._ingest(p.maccBinding);}
 
     _ingest(binding){
-      const rows = binding.data||[];
-      const P=[],CAT=[],A=[],M=[],CUM=[],NPV=[],CAP=[],OPX=[];
+      const rows=binding.data||[];
 
+      const P=[],CAT=[],A=[],M=[],CUM=[],NPV=[],CAP=[],OPX=[];
       for(const r of rows){
         P.push(r.dimension_0?.label ?? r.dimension_0?.id ?? "");
         CAT.push(r.dimension_cat_0?.label ?? "");
@@ -63,39 +62,39 @@
         OPX.push(Number(r.measure_opex_0?.raw)||0);
       }
 
-      this._data={project:P,category:CAT,abatement:A,mac:M,
-                  cumulative:CUM,npv:NPV,capex:CAP,opex:OPX};
-
+      this._data={project:P,category:CAT,abatement:A,
+                  mac:M,cumulative:CUM,npv:NPV,
+                  capex:CAP,opex:OPX};
       this._render();
     }
 
     _onMessage(evt){
-      if(evt.source !== this._frame.contentWindow) return;
+      if(evt.source!==this._frame.contentWindow) return;
+
       if(evt.data?.type==="bar_click"){
         this.dispatchEvent(new CustomEvent("onSelect",{
-          detail:{ selectedMembers: evt.data.selectedMembers }
+          detail:{selectedMembers:evt.data.selectedMembers}
         }));
       }
     }
 
     _render(){
-
-      this._frame.src = "https://sandeep-roy.github.io/EHS_MACC_2026/iframe.html";
+      this._frame.src="https://sandeep-roy.github.io/EHS_MACC_2026/iframe.html";
 
       let attempts=0;
       const trySend=()=>{
-          if(!this._frame.contentWindow){
-              attempts++;
-              if(attempts<50) setTimeout(trySend,100);
-              return;
-          }
-          this._frame.contentWindow.postMessage({
-              type:"update",
-              payload:this._data
-          },"*");
+        if(!this._frame.contentWindow){
+          attempts++;
+          if(attempts<50) setTimeout(trySend,100);
+          return;
+        }
+        this._frame.contentWindow.postMessage({
+          type:"update",
+          payload:this._data
+        },"*");
       };
 
-      this._frame.onload=()=>{ attempts=0; trySend(); };
+      this._frame.onload=()=>{attempts=0;trySend();};
     }
   }
 
