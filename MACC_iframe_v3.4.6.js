@@ -9,18 +9,13 @@
   `;
 
   class VariableWidthMACC extends HTMLElement {
-
     constructor(){
       super();
       this._shadow=this.attachShadow({mode:"open"});
       this._shadow.appendChild(template.content.cloneNode(true));
       this._frame=this._shadow.querySelector("#frame");
 
-      this._data={
-        project:[],category:[],abatement:[],
-        mac:[],cumulative:[],npv:[],capex:[],opex:[]
-      };
-
+      this._data={project:[],category:[],abatement:[],mac:[],cumulative:[],npv:[],capex:[],opex:[]};
       this._onMessage=this._onMessage.bind(this);
     }
 
@@ -49,8 +44,8 @@
 
     _ingest(binding){
       const rows=binding.data||[];
-
       const P=[],CAT=[],A=[],M=[],CUM=[],NPV=[],CAP=[],OPX=[];
+
       for(const r of rows){
         P.push(r.dimension_0?.label ?? r.dimension_0?.id ?? "");
         CAT.push(r.dimension_cat_0?.label ?? "");
@@ -69,7 +64,7 @@
     }
 
     _onMessage(evt){
-      if(evt.source!==this._frame.contentWindow) return;
+      if(evt.source!==this._frame.contentWindow)return;
 
       if(evt.data?.type==="bar_click"){
         this.dispatchEvent(new CustomEvent("onSelect",{
@@ -85,7 +80,7 @@
       const trySend=()=>{
         if(!this._frame.contentWindow){
           attempts++;
-          if(attempts<50) setTimeout(trySend,100);
+          if(attempts<50)setTimeout(trySend,100);
           return;
         }
         this._frame.contentWindow.postMessage({
@@ -99,5 +94,4 @@
   }
 
   customElements.define("variable-width-macc",VariableWidthMACC);
-
 })();
