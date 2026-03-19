@@ -3,20 +3,8 @@
   const template = document.createElement("template");
   template.innerHTML = `
       <style>
-        :host {
-            display:block;
-            width:100%;
-            height:100%;
-            position:relative;
-        }
-        iframe {
-            position:absolute;
-            top:0;
-            left:0;
-            width:100%;
-            height:100%;
-            border:none;
-        }
+        :host { display:block; width:100%; height:100%; position:relative; }
+        iframe { position:absolute; top:0; left:0; width:100%; height:100%; border:none; }
       </style>
       <iframe id="frame"></iframe>
   `;
@@ -30,14 +18,8 @@
       this._frame = this._shadow.querySelector("#frame");
 
       this._data = {
-        project: [],
-        category: [],
-        abatement: [],
-        mac: [],
-        cumulative: [],
-        npv: [],
-        capex: [],
-        opex: []
+        project: [], category: [], abatement: [],
+        mac: [], cumulative: [], npv: [], capex: [], opex: []
       };
 
       this._onMessage = this._onMessage.bind(this);
@@ -46,29 +28,28 @@
     getDataBindings() {
       return {
         maccBinding: {
-          feeds: [
-            { id:"dimension",     type:"dimension" },
-            { id:"dimension_cat", type:"dimension" },
-            { id:"measure_abate", type:"mainStructureMember" },
-            { id:"measure_mac",   type:"mainStructureMember" },
-            { id:"measure_cum",   type:"mainStructureMember" },
-            { id:"measure_npv",   type:"mainStructureMember" },
-            { id:"measure_capex", type:"mainStructureMember" },
-            { id:"measure_opex",  type:"mainStructureMember" }
+          feeds:[
+            {id:"dimension",type:"dimension"},
+            {id:"dimension_cat",type:"dimension"},
+            {id:"measure_abate",type:"mainStructureMember"},
+            {id:"measure_mac",type:"mainStructureMember"},
+            {id:"measure_cum",type:"mainStructureMember"},
+            {id:"measure_npv",type:"mainStructureMember"},
+            {id:"measure_capex",type:"mainStructureMember"},
+            {id:"measure_opex",type:"mainStructureMember"}
           ]
         }
       };
     }
 
-    connectedCallback(){ window.addEventListener("message", this._onMessage); }
-    disconnectedCallback(){ window.removeEventListener("message", this._onMessage); }
+    connectedCallback(){ window.addEventListener("message",this._onMessage); }
+    disconnectedCallback(){ window.removeEventListener("message",this._onMessage); }
 
     onCustomWidgetBeforeUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
     onCustomWidgetAfterUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
 
-    _ingest(binding) {
-      const rows=binding.data||[];
-
+    _ingest(binding){
+      const rows = binding.data||[];
       const P=[],CAT=[],A=[],M=[],CUM=[],NPV=[],CAP=[],OPX=[];
 
       for(const r of rows){
@@ -82,28 +63,26 @@
         OPX.push(Number(r.measure_opex_0?.raw)||0);
       }
 
-      this._data={ project:P, category:CAT, abatement:A, mac:M,
-                   cumulative:CUM, npv:NPV, capex:CAP, opex:OPX };
+      this._data={project:P,category:CAT,abatement:A,mac:M,
+                  cumulative:CUM,npv:NPV,capex:CAP,opex:OPX};
 
       this._render();
     }
 
-    _onMessage(evt) {
+    _onMessage(evt){
       if(evt.source !== this._frame.contentWindow) return;
-
       if(evt.data?.type==="bar_click"){
         this.dispatchEvent(new CustomEvent("onSelect",{
-            detail:{ selectedMembers: evt.data.selectedMembers }
+          detail:{ selectedMembers: evt.data.selectedMembers }
         }));
       }
     }
 
-    _render() {
+    _render(){
 
       this._frame.src = "https://sandeep-roy.github.io/EHS_MACC_2026/iframe.html";
 
       let attempts=0;
-
       const trySend=()=>{
           if(!this._frame.contentWindow){
               attempts++;
@@ -116,13 +95,10 @@
           },"*");
       };
 
-      this._frame.onload=()=>{
-          attempts=0;
-          trySend();
-      };
+      this._frame.onload=()=>{ attempts=0; trySend(); };
     }
   }
 
-  customElements.define("variable-width-macc", VariableWidthMACC);
+  customElements.define("variable-width-macc",VariableWidthMACC);
 
 })();
