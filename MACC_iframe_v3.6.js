@@ -67,46 +67,34 @@
     onCustomWidgetAfterUpdate(p){ if(p.maccBinding) this._ingest(p.maccBinding); }
 
     _ingest(binding) {
-      const rows = binding.data || [];
+      const rows=binding.data||[];
 
-      const P=[], CAT=[], A=[], M=[], CUM=[], NPV=[], CAP=[], OPX=[];
+      const P=[],CAT=[],A=[],M=[],CUM=[],NPV=[],CAP=[],OPX=[];
 
-      for (const r of rows) {
+      for(const r of rows){
         P.push(r.dimension_0?.label ?? r.dimension_0?.id ?? "");
         CAT.push(r.dimension_cat_0?.label ?? "");
-        A.push(Number(r.measure_abate_0?.raw) || 0);
-        M.push(Number(r.measure_mac_0?.raw) || 0);
-        CUM.push(Number(r.measure_cum_0?.raw) || 0);
-        NPV.push(Number(r.measure_npv_0?.raw) || 0);
-        CAP.push(Number(r.measure_capex_0?.raw) || 0);
-        OPX.push(Number(r.measure_opex_0?.raw) || 0);
+        A.push(Number(r.measure_abate_0?.raw)||0);
+        M.push(Number(r.measure_mac_0?.raw)||0);
+        CUM.push(Number(r.measure_cum_0?.raw)||0);
+        NPV.push(Number(r.measure_npv_0?.raw)||0);
+        CAP.push(Number(r.measure_capex_0?.raw)||0);
+        OPX.push(Number(r.measure_opex_0?.raw)||0);
       }
 
-      this._data = {
-        project: P,
-        category: CAT,
-        abatement: A,
-        mac: M,
-        cumulative: CUM,
-        npv: NPV,
-        capex: CAP,
-        opex: OPX
-      };
+      this._data={ project:P, category:CAT, abatement:A, mac:M,
+                   cumulative:CUM, npv:NPV, capex:CAP, opex:OPX };
 
       this._render();
     }
 
     _onMessage(evt) {
-      if (evt.source !== this._frame.contentWindow) return;
+      if(evt.source !== this._frame.contentWindow) return;
 
-      if (evt.data?.type === "bar_click") {
-        this.dispatchEvent(
-          new CustomEvent("onSelect", {
-            detail: {
-              selectedMembers: evt.data.selectedMembers
-            }
-          })
-        );
+      if(evt.data?.type==="bar_click"){
+        this.dispatchEvent(new CustomEvent("onSelect",{
+            detail:{ selectedMembers: evt.data.selectedMembers }
+        }));
       }
     }
 
@@ -114,22 +102,22 @@
 
       this._frame.src = "https://sandeep-roy.github.io/EHS_MACC_2026/iframe.html";
 
-      let attempts = 0;
-      const trySend = () => {
-          if (!this._frame.contentWindow) {
+      let attempts=0;
+
+      const trySend=()=>{
+          if(!this._frame.contentWindow){
               attempts++;
-              if (attempts < 50) setTimeout(trySend, 100);
+              if(attempts<50) setTimeout(trySend,100);
               return;
           }
-
           this._frame.contentWindow.postMessage({
               type:"update",
               payload:this._data
-          }, "*");
+          },"*");
       };
 
-      this._frame.onload = () => {
-          attempts = 0;
+      this._frame.onload=()=>{
+          attempts=0;
           trySend();
       };
     }
