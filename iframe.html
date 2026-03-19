@@ -56,13 +56,6 @@
       font-weight:bold;
   }
   #zoom-controls button:hover { background:#e5e5e5; }
-
-  #brush {
-      fill:rgba(150,150,150,0.25);
-      stroke:#333;
-      stroke-dasharray:4;
-      pointer-events:none;
-  }
 </style>
 </head>
 
@@ -87,12 +80,7 @@ let translateX=0;
 let dragging=false;
 let dragStartX=0;
 
-/* Brush zoom */
-let brushActive=false;
-let brushStartX=0;
-let brushRect=null;
-
-/* Receive from SAC loader */
+/* Receive from SAC */
 window.addEventListener("message",evt=>{
     if(evt.data?.type==="update"){
         DATA=evt.data.payload;
@@ -104,7 +92,7 @@ const svg=document.getElementById("svg");
 const tip=document.getElementById("tooltip");
 
 /* ============================================================
-   DRAW v3.4.5
+   DRAW (Corrected Version - Option 2)
 ============================================================ */
 function draw(){
     if(!DATA) return;
@@ -127,7 +115,7 @@ function draw(){
     const axisLayer=svg.querySelector("#axisLayer");
     const barLayer =svg.querySelector("#barLayer");
 
-    /* Reset zoom transforms */
+    /* Reset zoom */
     scale=1;
     translateX=0;
 
@@ -135,14 +123,10 @@ function draw(){
     const innerW=Math.max(500, W-margin.left-margin.right);
     const innerH=H-margin.top-margin.bottom;
 
-    svg.querySelector("#clipRect")
-       .setAttribute("x",margin.left);
-    svg.querySelector("#clipRect")
-       .setAttribute("width",innerW);
-    svg.querySelector("#clipRect")
-       .setAttribute("y",margin.top);
-    svg.querySelector("#clipRect")
-       .setAttribute("height",innerH);
+    svg.querySelector("#clipRect").setAttribute("x",margin.left);
+    svg.querySelector("#clipRect").setAttribute("width",innerW);
+    svg.querySelector("#clipRect").setAttribute("y",margin.top);
+    svg.querySelector("#clipRect").setAttribute("height",innerH);
 
     /* Dataset */
     const rows=DATA.project.map((p,i)=>({
@@ -162,15 +146,10 @@ function draw(){
 
     let totalAb=clean.reduce((s,r)=>s+r.abate,0);
     let cum=0;
-    clean.forEach(r=>{
-        r.x0=cum;
-        cum+=r.abate;
-        r.x1=cum;
-    });
+    clean.forEach(r=>{ r.x0=cum; cum+=r.abate; r.x1=cum; });
 
-    /* COMPACT scaling */
+    /* Scaling */
     const scaleX=innerW/totalAb;
-
     const x=v=> margin.left + v*scaleX;
 
     const macColor=v=>{
@@ -193,7 +172,7 @@ function draw(){
     const y=val=> margin.top + (1-(val-minMAC)/(maxMAC-minMAC))*innerH;
     const y0=y(0);
 
-    /* Gridlines (static) */
+    /* Gridlines */
     const yTicks=6, xTicks=6;
 
     for(let i=0;i<=yTicks;i++){
@@ -221,18 +200,16 @@ function draw(){
     }
 
     /* Zero-line */
-    {
-        const zl=document.createElementNS(svg.namespaceURI,"line");
-        zl.setAttribute("x1",margin.left);
-        zl.setAttribute("x2",margin.left+innerW);
-        zl.setAttribute("y1",y0);
-        zl.setAttribute("y2",y0);
-        zl.setAttribute("stroke","#0044aa");
-        zl.setAttribute("stroke-width","1.5");
-        axisLayer.appendChild(zl);
-    }
+    const zl=document.createElementNS(svg.namespaceURI,"line");
+    zl.setAttribute("x1",margin.left);
+    zl.setAttribute("x2",margin.left+innerW);
+    zl.setAttribute("y1",y0);
+    zl.setAttribute("y2",y0);
+    zl.setAttribute("stroke","#0044aa");
+    zl.setAttribute("stroke-width","1.5");
+    axisLayer.appendChild(zl);
 
-    /* Y ticks (static) */
+    /* Y ticks */
     for(let i=0;i<=yTicks;i++){
         const v=minMAC+(i/yTicks)*(maxMAC-minMAC);
         const pos=y(v);
@@ -254,13 +231,12 @@ function draw(){
         axisLayer.appendChild(lab);
     }
 
-    /* X ticks (MOVE WITH ZOOM) */
-    function drawXTicks(translateXNow){
+    /* X ticks — STATIC (no translate) */
+    function drawXTicks(){
         axisLayer.querySelectorAll(".xtick").forEach(e=>e.remove());
-
         for(let i=0;i<=xTicks;i++){
             const v=(i/xTicks)*totalAb;
-            const pos = x(v) + translateXNow;  // key fix
+            const pos = x(v);     /* NO translateX */
 
             const t=document.createElementNS(svg.namespaceURI,"line");
             t.classList.add("xtick");
@@ -282,9 +258,9 @@ function draw(){
         }
     }
 
-    drawXTicks(0);
+    drawXTicks();
 
-    /* Bars in barLayer */
+    /* Bars */
     clean.forEach(d=>{
         const w = Math.max(4, (d.x1-d.x0)*scaleX);
 
@@ -299,29 +275,7 @@ function draw(){
         rect.setAttribute("vector-effect","non-scaling-stroke");
         rect.style.cursor="pointer";
 
-        let html=`
-<b>${d.name}</b><br>
-Category: ${d.cat}<br>
-MAC: ${d.mac}<br>
-Abatement: ${d.abate}<br>
-Cumulative: ${d.cum}<br>
-NPV: ${d.npv}<br>
-Capex: ${d.capex}<br>
-Opex: ${d.opex}
-        `;
-
-        rect.onmouseover=()=>{tip.style.display="block";tip.innerHTML=html;};
-        rect.onmouseout =()=> tip.style.display="none";
-        rect.onmousemove=evt=>{
-            let tx=evt.clientX+15, ty=evt.clientY-20;
-            if(tx+tip.offsetWidth>window.innerWidth-10)
-                tx=evt.clientX-tip.offsetWidth-15;
-            if(ty<10)ty=evt.clientY+20;
-            tip.style.left=tx+"px";
-            tip.style.top=ty+"px";
-        };
-
-        rect.onclick=()=>{
+        rect.onclick=() =>{
             if(selected.has(d.name)){
                 selected.delete(d.name);
                 rect.setAttribute("stroke","#333");
@@ -329,7 +283,6 @@ Opex: ${d.opex}
                 selected.add(d.name);
                 rect.setAttribute("stroke","black");
             }
-
             parent.postMessage({
                 type:"bar_click",
                 selectedMembers:Array.from(selected).map(x=>({id:x}))
@@ -357,116 +310,73 @@ Opex: ${d.opex}
     ylab.setAttribute("font-size","18");
     axisLayer.appendChild(ylab);
 
-    /* Brush zoom */
-    svg.onmousedown=evt=>{
-        if(evt.target.tagName==="rect"||evt.target.tagName==="text") return;
-        brushActive=true;
-        brushStartX=evt.offsetX;
 
-        brushRect=document.createElementNS(svg.namespaceURI,"rect");
-        brushRect.id="brush";
-        brushRect.setAttribute("x",brushStartX);
-        brushRect.setAttribute("y",margin.top);
-        brushRect.setAttribute("width",0);
-        brushRect.setAttribute("height",innerH);
-        svg.appendChild(brushRect);
-    };
+    /* ========== CLEAN UX: PAN + ZOOM ONLY (NO BRUSH) ========== */
 
-    svg.onmousemove=evt=>{
-        if(!brushActive)return;
-        const cx=evt.offsetX;
-        if(cx<brushStartX){
-            brushRect.setAttribute("width",0);
-            return;
-        }
-        brushRect.setAttribute("width",cx-brushStartX);
-    };
+    /* Mouse wheel zoom (centered on cursor) */
+    svg.addEventListener("wheel",evt=>{
+        evt.preventDefault();
+        const mouseX = evt.offsetX;
+        const prevScale = scale;
+        const zoomFactor = evt.deltaY < 0 ? 1.2 : 0.8;
 
-    svg.onmouseup=evt=>{
-        if(!brushActive)return;
-        brushActive=false;
-
-        const end=evt.offsetX;
-        svg.removeChild(brushRect);
-
-        if(end<=brushStartX+10)return;
-
-        const pxMin=brushStartX;
-        const pxMax=end;
-
-        /* convert to data domain */
-        const xMin=(pxMin-margin.left)/scaleX;
-        const xMax=(pxMax-margin.left)/scaleX;
-
-        const inRange=clean.filter(d=>d.x1>=xMin && d.x0<=xMax);
-        if(!inRange.length){draw();return;}
-
-        minMAC=Math.min(...inRange.map(d=>d.mac));
-        maxMAC=Math.max(...inRange.map(d=>d.mac));
-        minMAC-=PAD; maxMAC+=PAD;
-
-        const pxRange=pxMax-pxMin;
-        const z=innerW/pxRange;
-
-        scale=z;
-        translateX = -pxMin*z + margin.left;
+        scale = Math.min(Math.max(scale * zoomFactor, 0.3), 5);
+        translateX = mouseX - (mouseX - translateX) * (scale / prevScale);
 
         applyTransform();
-    };
+    });
 
-    svg.ondblclick=()=>{
+    /* Pan by dragging */
+    svg.addEventListener("mousedown",evt=>{
+        dragging=true;
+        dragStartX = evt.clientX - translateX;
+    });
+
+    svg.addEventListener("mousemove",evt=>{
+        if(dragging){
+            translateX = evt.clientX - dragStartX;
+            applyTransform();
+        }
+    });
+
+    svg.addEventListener("mouseup",()=> dragging=false);
+    svg.addEventListener("mouseleave",()=> dragging=false);
+
+    /* Zoom buttons */
+    document.getElementById("zoom-in").onclick=()=>{
+        const mx = W/2;
+        const prev = scale;
+        scale = Math.min(scale+0.2,5);
+        translateX = mx - (mx - translateX) * (scale / prev);
+        applyTransform();
+    };
+    document.getElementById("zoom-out").onclick=()=>{
+        const mx = W/2;
+        const prev = scale;
+        scale = Math.max(scale-0.2,0.3);
+        translateX = mx - (mx - translateX) * (scale / prev);
+        applyTransform();
+    };
+    document.getElementById("zoom-reset").onclick=()=>{
         scale=1;
         translateX=0;
         applyTransform();
     };
 
-    /* Recompute ticks on zoom */
+    /* Apply transformations */
     function applyTransform(){
-        const barLayer=svg.querySelector("#barLayer");
         barLayer.setAttribute("transform",
-            `translate(${translateX},0) scale(${scale},1)`);
+          `translate(${translateX},0) scale(${scale},1)`);
 
-        /* AxisLayer translates ONLY */
-        axisLayer.setAttribute("transform",
-            `translate(${translateX},0)`);
+        /* X-axis is static → no translation */
+        axisLayer.setAttribute("transform","translate(0,0)");
 
-        /* Redraw X ticks at translated positions */
-        svg.querySelectorAll(".xtick").forEach(el=>el.remove());
-        drawXTicks(translateX);
+        drawXTicks();
     }
-
-    /* Expose for outer functions */
-    window.applyTransform = applyTransform;
-
-    /* Pan */
-    svg.onmousedown = evt=>{
-        if(evt.target.id==="brush")return;
-        if(evt.button!==0)return;
-        dragging=true;
-        dragStartX=evt.clientX-translateX;
-    };
-
-    svg.onmousemove = evt=>{
-        if(dragging){
-            translateX=evt.clientX-dragStartX;
-            applyTransform();
-        }
-    };
-
-    svg.onmouseup = ()=> dragging=false;
-    svg.onmouseleave = ()=> dragging=false;
-
-    /* Wheel zoom */
-    svg.onwheel = evt=>{
-        evt.preventDefault();
-        scale+= evt.deltaY<0?0.2:-0.2;
-        scale=Math.min(Math.max(scale,0.3),5);
-        applyTransform();
-    };
 }
 
-/* Redraw on resize */
 window.onresize=()=> draw();
 </script>
+
 </body>
 </html>
