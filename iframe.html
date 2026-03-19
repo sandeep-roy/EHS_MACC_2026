@@ -96,12 +96,26 @@ function draw(){ if(!DATA) return;
    tip.innerHTML = `<b>${d.name}</b><br>Category: ${d.cat}<br>MAC: ${d.mac}<br>Abatement: ${d.abate}<br>Cumulative: ${d.cum}<br>NPV: ${d.npv}<br>Capex: ${d.capex}<br>Opex: ${d.opex}`;
   } else tip.style.display='none';
  });
- function clampTransform(){
-  const leftLimit = margin.left;
-  const rightLimit = margin.left + innerW - (innerW * scale);
-  if(translateX > leftLimit) translateX = leftLimit;
-  if(translateX < rightLimit) translateX = rightLimit;
- }
+
+function clampTransform() {
+    // left edge of first bar after scaling
+    const bar0Left = translateX + margin.left * scale;
+
+    // If bar goes left of axis, push it back
+    if (bar0Left < margin.left) {
+        translateX += (margin.left - bar0Left);
+    }
+
+    // Right boundary: prevent bars from drifting too far right
+    const scaledWidth = innerW * scale;
+    const visibleRight = translateX + margin.left * scale + scaledWidth;
+    const axisRight = margin.left + innerW;
+
+    if (visibleRight < axisRight) {
+        translateX += (axisRight - visibleRight);
+    }
+}
+
  function applyTransform(){ barLayer.setAttribute('transform',`translate(${translateX},0) scale(${scale},1)`); axisLayer.setAttribute('transform','translate(0,0)'); drawXTicks(); }
  svg.addEventListener('wheel',evt=>{evt.preventDefault(); let mx=evt.offsetX, prev=scale, f=evt.deltaY<0?1.2:0.8;
   scale=Math.min(Math.max(scale*f,0.3),5); translateX = mx-(mx-translateX)*(scale/prev);
