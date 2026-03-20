@@ -1,12 +1,12 @@
 import { state } from "../state.js";
-import { applyTransform, clampTransform } from "../utils/math.js";
+import { clampTransform, applyTransform } from "../utils/math.js";
 
 let boxMode = false;
 
 export function initBoxZoom() {
   const svg = state.svg;
   const btn = document.getElementById("zoom-box");
-  const overlay = svg.querySelector("#overlayLayer");
+  const overlay = () => svg.querySelector("#overlayLayer");
 
   let startX = null;
   let rect = null;
@@ -17,28 +17,27 @@ export function initBoxZoom() {
     svg.style.cursor = boxMode ? "crosshair" : "default";
   };
 
-  svg.addEventListener("mousedown", e => {
-    if (!boxMode || e.button !== 0) return;
+  svg.addEventListener("mousedown", evt => {
+    if (!boxMode || evt.button !== 0) return;
 
-    startX = getSvgX(e, svg);
+    startX = getSvgX(evt, svg);
 
     rect = document.createElementNS(svg.namespaceURI, "rect");
     rect.setAttribute("y", state.layout.margin.top);
     rect.setAttribute("height", state.layout.innerH);
-    rect.setAttribute("fill", "rgba(0, 120, 215, 0.25)");
-    rect.setAttribute("stroke", "rgba(0, 120, 215, 0.9)");
+    rect.setAttribute("fill", "rgba(0,120,215,0.25)");
+    rect.setAttribute("stroke", "rgba(0,120,215,0.9)");
     rect.setAttribute("stroke-width", "1.2");
     rect.setAttribute("stroke-dasharray", "4 2");
     rect.style.pointerEvents = "none";
 
-    overlay.appendChild(rect);
+    overlay().appendChild(rect);
   });
 
-  svg.addEventListener("mousemove", e => {
-    if (!boxMode || startX === null || !rect) return;
+  svg.addEventListener("mousemove", evt => {
+    if (!boxMode || rect == null) return;
 
-    const x = getSvgX(e, svg);
-
+    const x = getSvgX(evt, svg);
     const x1 = Math.min(startX, x);
     const x2 = Math.max(startX, x);
 
@@ -46,16 +45,16 @@ export function initBoxZoom() {
     rect.setAttribute("width", x2 - x1);
   });
 
-  svg.addEventListener("mouseup", e => {
-    if (!boxMode || startX === null || !rect) return;
+  svg.addEventListener("mouseup", evt => {
+    if (!boxMode || rect == null) return;
 
-    const endX = getSvgX(e, svg);
+    const endX = getSvgX(evt, svg);
 
     const x1 = Math.min(startX, endX);
     const x2 = Math.max(startX, endX);
-
     rect.remove();
     rect = null;
+
     boxMode = false;
     btn.style.background = "#fff";
 
@@ -69,9 +68,17 @@ export function initBoxZoom() {
 
     const worldWidth = rightWorld - leftWorld;
     const totalAb = state.scales.totalAbate;
-    const pxPerWorld = state.layout.innerW / totalAb;
 
-    state.scale = state.layout.innerW / (worldWidth * pxPerWorld);
+    if (worldWidth <= 0) return;
+
+    // pixel-per-unit (world → screen)
+    const pxPerUnit = state.layout.innerW / totalAb;
+
+    // NEW SCALE
+    state.scale = state.layout.innerW / (worldWidth * pxPerUnit);
+    if (!isFinite(state.scale)) return;
+
+    // NEW TRANSLATE
     state.translateX =
       state.layout.margin.left -
       (leftWorld - state.layout.margin.left) * state.scale;
@@ -92,5 +99,6 @@ function getSvgX(evt, svg) {
 
 function screenToWorld(screenX) {
   const { margin } = state.layout;
-  return margin.left + ((screenX - state.translateX - margin.left) / state.scale);
+  const { translateX, scale } = state;
+  return margin.left + ((screenX - translateX - margin.left) / scale);
 }
