@@ -1,9 +1,11 @@
 // ======================================================================
-// wheel.js — Domain-based mouse wheel zoom
+// wheel.js — FINAL STABLE VERSION
 // ======================================================================
 
 import { state } from "../state.js";
 import { render } from "../main.js";
+
+const MIN_RANGE = 500;  // ensures zoom never collapses
 
 export function initWheelZoom() {
   const svg = state.svg;
@@ -12,22 +14,22 @@ export function initWheelZoom() {
     evt.preventDefault();
 
     let { domainLeft, domainRight, totalAbate } = state.scales;
-    const { innerW, margin } = state.layout;
-
     const range = domainRight - domainLeft;
     if (range <= 0) return;
 
     const factor = evt.deltaY < 0 ? 0.8 : 1.25;
-
     const svgX = getSvgX(evt, svg);
-    const mouseWorld = domainLeft + ((svgX - margin.left) / innerW) * range;
+    if (!isFinite(svgX)) return;
+
+    const { margin, innerW } = state.layout;
+
+    const mouseWorld =
+      domainLeft + ((svgX - margin.left) / innerW) * range;
 
     let newRange = range * factor;
+    newRange = Math.max(MIN_RANGE, Math.min(newRange, totalAbate));
 
-    // Clamp limits
-    newRange = Math.max(5, Math.min(newRange, totalAbate));
-
-    state.scales.domainLeft  = mouseWorld - newRange / 2;
+    state.scales.domainLeft = mouseWorld - newRange / 2;
     state.scales.domainRight = mouseWorld + newRange / 2;
 
     render();
