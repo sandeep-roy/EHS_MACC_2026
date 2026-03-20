@@ -15,5 +15,6 @@ export function drawSVGBase() {
     <g id="barLayer" clip-path="url(#plotClip)"></g>
     <g id="xTickTextLayer"></g>
     <g id="xAxisLabelLayer"></g>
+    <g id="overlayLayer"></g>
   `;
 }
