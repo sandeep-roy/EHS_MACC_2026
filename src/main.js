@@ -24,7 +24,7 @@ import { initTooltip } from "./draw/drawTooltip.js";
 import { initWheelZoom } from "./event/wheel.js";
 import { initPan } from "./event/pan.js";
 import { initBoxZoom } from "./event/boxZoom.js";
-import { initBoxZoom } from "./event/zoomButtons.js";
+import { initZoomButtons } from "./event/zoomButtons.js";
 
 // ======================================================================
 // initMACC() — Entry point from iframe.html
