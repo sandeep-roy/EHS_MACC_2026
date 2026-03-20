@@ -11,10 +11,10 @@ import { drawLabels } from "./draw/drawLabels.js";
 import { drawXTicks } from "./draw/drawXTicks.js";
 import { initTooltip } from "./draw/drawTooltip.js";
 
-import { initWheelZoom } from "./events/wheel.js";
-import { initPan } from "./events/pan.js";
-import { initZoomButtons } from "./events/zoomButtons.js";
-import { initResize } from "./events/resize.js";
+import { initWheelZoom } from "./event/wheel.js";
+import { initPan } from "./event/pan.js";
+import { initZoomButtons } from "./event/zoomButtons.js";
+import { initResize } from "./event/resize.js";
 
 export function initMACC() {
   state.svg = document.getElementById("svg");
