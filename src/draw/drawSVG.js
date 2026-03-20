@@ -2,6 +2,7 @@ import { state } from "../state.js";
 
 export function drawSVGBase() {
   const svg = state.svg;
+
   svg.innerHTML = `
     <defs>
       <clipPath id="plotClip">
@@ -15,6 +16,8 @@ export function drawSVGBase() {
     <g id="barLayer" clip-path="url(#plotClip)"></g>
     <g id="xTickTextLayer"></g>
     <g id="xAxisLabelLayer"></g>
-    <g id="overlayLayer"></g>
+
+    <!-- IMPORTANT: Overlay layer for selection rectangle -->
+    <g id="overlayLayer" style="pointer-events:none;"></g>
   `;
 }
