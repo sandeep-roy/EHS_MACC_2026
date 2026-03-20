@@ -24,4 +24,8 @@ export function prepareData() {
   });
 
   state.rows = rows;
+  state.scales.totalAbate = totalAb;
+state.scales.domainLeft = 0;
+state.scales.domainRight = totalAb; 
+
 }
