@@ -1,29 +1,21 @@
-import { state } from "../state.js";
+// ======================================================================
+// math.js — Minimal math helpers for domain-based MACC chart
+// ======================================================================
+// NOTE:
+//  • Old CSS transform code is intentionally removed.
+//  • Domain-based zoom (domainLeft/domainRight) controls the chart.
+//  • All rendering is recalculated on each event.
+// ======================================================================
 
-export function clampTransform() {
-  const { margin, innerW } = state.layout;
-
-  const leftWorld = margin.left * state.scale + state.translateX;
-  const rightWorld = (margin.left + innerW) * state.scale + state.translateX;
-
-  const leftBound = margin.left;
-  const rightBound = margin.left + innerW;
-
-  if (leftWorld > leftBound) {
-    state.translateX -= (leftWorld - leftBound);
-  }
-  if (rightWorld < rightBound) {
-    state.translateX += (rightBound - rightWorld);
-  }
-}
+// Placeholder functions preserved to avoid breaking imports.
+// They intentionally do nothing now.
 
 export function applyTransform() {
-  const svg = state.svg;
-  const layerBars = svg.querySelector("#barLayer");
-  const layerAxis = svg.querySelector("#axisLayer");
+  // Left intentionally empty.
+  // All visual updates now happen through domain-based re-render.
+}
 
-  const transform = `scale(${state.scale},1) translate(${state.translateX},0)`;
-
-  layerBars.setAttribute("transform", transform);
-  layerAxis.setAttribute("transform", transform);
+export function clampTransform() {
+  // Left intentionally empty.
+  // No transform-based clamps required in domain engine.
 }
