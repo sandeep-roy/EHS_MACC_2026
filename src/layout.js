@@ -19,4 +19,3 @@ export function computeLayout() {
     clip.setAttribute("height", innerH);
   }
 }
-``
