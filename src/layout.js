@@ -1,3 +1,13 @@
+// ======================================================================
+// layout.js — Computes drawing area dimensions
+// ======================================================================
+// This module:
+//   ✔ Reads actual SVG size
+//   ✔ Computes inner chart region
+//   ✔ Updates clip rectangle for barLayer
+//   ✔ Works reliably inside SAC IFRAME (resizes correctly)
+// ======================================================================
+
 import { state } from "./state.js";
 
 export function computeLayout() {
@@ -6,16 +16,20 @@ export function computeLayout() {
   const H = svg.clientHeight;
 
   const margin = state.layout.margin;
-  const innerW = Math.max(500, W - margin.left - margin.right);
-  const innerH = H - margin.top - margin.bottom;
+  const innerW = Math.max(100, W - margin.left - margin.right);
+  const innerH = Math.max(100, H - margin.top - margin.bottom);
 
-  state.layout = { W, H, innerW, innerH, margin };
+  state.layout.W = W;
+  state.layout.H = H;
+  state.layout.innerW = innerW;
+  state.layout.innerH = innerH;
 
-  const clip = svg.querySelector("#clipRect");
-  if (clip) {
-    clip.setAttribute("x", margin.left);
-    clip.setAttribute("y", margin.top);
-    clip.setAttribute("width", innerW);
-    clip.setAttribute("height", innerH);
+  // Update clipPath for bars
+  const clipRect = svg.querySelector("#clipRect");
+  if (clipRect) {
+    clipRect.setAttribute("x", margin.left);
+    clipRect.setAttribute("y", margin.top);
+    clipRect.setAttribute("width", innerW);
+    clipRect.setAttribute("height", innerH);
   }
 }
