@@ -1,5 +1,5 @@
 // ======================================================================
-// pan.js — Domain-based horizontal panning with boundary clamps
+// pan.js — FINAL STABLE VERSION (safe, no recursion, no freeze)
 // ======================================================================
 
 import { state } from "../state.js";
@@ -9,17 +9,18 @@ export function initPan() {
   const svg = state.svg;
 
   let isDragging = false;
-  let startX = null;
+  let lastX = null;
 
   svg.addEventListener("mousedown", evt => {
     if (evt.button !== 0) return;
 
+    // Disable panning during rectangular zoom mode
     const zoomBtn = document.getElementById("zoom-box");
-    const boxModeActive = zoomBtn && zoomBtn.style.background === "rgb(208, 224, 255)";
-    if (boxModeActive) return;
+    const boxMode = zoomBtn && zoomBtn.style.background === "rgb(208, 224, 255)";
+    if (boxMode) return;
 
     isDragging = true;
-    startX = getSvgX(evt, svg);
+    lastX = getSvgX(evt, svg);
     svg.style.cursor = "grabbing";
   });
 
@@ -27,42 +28,48 @@ export function initPan() {
     if (!isDragging) return;
 
     const curX = getSvgX(evt, svg);
-    const dx = curX - startX;
+    const dx = curX - lastX;
+    lastX = curX;
 
-    const { domainLeft, domainRight, totalAbate } = state.scales;
-    const domainRange = domainRight - domainLeft;
+    let { domainLeft, domainRight, totalAbate } = state.scales;
     const { innerW } = state.layout;
 
-    const moveWorld = (dx / innerW) * domainRange;
+    const range = domainRight - domainLeft;
+    if (range <= 0) return;
 
-    let newLeft  = domainLeft - moveWorld;
+    const moveWorld = (dx / innerW) * range;
+
+    let newLeft = domainLeft - moveWorld;
     let newRight = domainRight - moveWorld;
 
-    // Clamp to boundaries
+    // ----- HARD CLAMP -----
+    const width = newRight - newLeft;
+
     if (newLeft < 0) {
-      newRight += -newLeft;
       newLeft = 0;
-    }
-    if (newRight > totalAbate) {
-      const excess = newRight - totalAbate;
-      newLeft -= excess;
-      newRight = totalAbate;
+      newRight = width;
     }
 
-    state.scales.domainLeft  = newLeft;
+    if (newRight > totalAbate) {
+      newRight = totalAbate;
+      newLeft = totalAbate - width;
+    }
+
+    state.scales.domainLeft = newLeft;
     state.scales.domainRight = newRight;
 
-    startX = curX;
     render();
   });
 
-  svg.addEventListener("mouseup", () => stopPan(svg));
-  svg.addEventListener("mouseleave", () => stopPan(svg));
-}
+  svg.addEventListener("mouseup", () => {
+    isDragging = false;
+    svg.style.cursor = "default";
+  });
 
-function stopPan(svg) {
-  svg.style.cursor = "default";
-  svg.dispatchEvent(new Event("mouseup", { bubbles: false }));
+  svg.addEventListener("mouseleave", () => {
+    isDragging = false;
+    svg.style.cursor = "default";
+  });
 }
 
 function getSvgX(evt, svg) {
