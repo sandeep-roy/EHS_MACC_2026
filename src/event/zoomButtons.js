@@ -1,5 +1,5 @@
 // ======================================================================
-// zoomButtons.js — Zoom-in, Zoom-out, Reset (Domain-Based)
+// zoomButtons.js — Domain-based zoom in/out/reset with safety
 // ======================================================================
 
 import { state } from "../state.js";
@@ -10,29 +10,29 @@ export function initZoomButtons() {
   const btnOut = document.getElementById("zoom-out");
   const btnReset = document.getElementById("zoom-reset");
 
-  btnIn.onclick = () => zoomDomain(0.8);     // zoom in
-  btnOut.onclick = () => zoomDomain(1.25);   // zoom out
+  btnIn.onclick = () => zoomDomain(0.8);    // zoom IN
+  btnOut.onclick = () => zoomDomain(1.25);  // zoom OUT
   btnReset.onclick = () => resetDomain();
 }
 
-// Zoom by factor
 function zoomDomain(factor) {
-  let { domainLeft, domainRight } = state.scales;
-  const { margin, innerW } = state.layout;
+  let { domainLeft, domainRight, totalAbate } = state.scales;
 
-  const domainRange = domainRight - domainLeft;
-  const newRange = domainRange * factor;
+  const range = domainRight - domainLeft;
+  if (range < 5) return;     // prevent collapse
 
-  const mid = domainLeft + domainRange / 2;
+  const mid = domainLeft + range / 2;
+  let newRange = range * factor;
 
-  state.scales.domainLeft = mid - newRange / 2;
+  // Limit zoom in/out
+  newRange = Math.max(5, Math.min(newRange, totalAbate));
+
+  state.scales.domainLeft  = mid - newRange / 2;
   state.scales.domainRight = mid + newRange / 2;
 
-  // Re-render
   render();
 }
 
-// Reset full domain
 function resetDomain() {
   state.scales.domainLeft = 0;
   state.scales.domainRight = state.scales.totalAbate;
