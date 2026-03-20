@@ -7,7 +7,7 @@ export function drawLabels() {
 
   // X axis label
   const xlab = document.createElementNS(svg.namespaceURI, "text");
-  xlab.textContent = "Total Abatement";
+  xlab.textContent = "Total Abatement (tCO2e)";
   xlab.setAttribute("x", margin.left + innerW / 2);
   xlab.setAttribute("y", margin.top + innerH + 55);
   xlab.setAttribute("text-anchor", "middle");
