@@ -1,16 +1,23 @@
+// ======================================================================
+// drawGrid.js — Draws MACC chart grid lines using domain-based x-scale
+// ======================================================================
+
 import { state } from "../state.js";
 
 export function drawGrid() {
   const svg = state.svg;
-  const grid = svg.querySelector("#gridLayer");
+  const layer = svg.querySelector("#gridLayer");
+  layer.innerHTML = "";
 
+  const { x, y, minMAC, maxMAC, domainLeft, domainRight } = state.scales;
   const { margin, innerW, innerH } = state.layout;
-  const { x, y, minMAC, maxMAC, totalAbate } = state.scales;
 
-  // Horizontal gridlines (MAC)
+  // ---------------------------------------------------------------
+  // 1. Horizontal gridlines (MAC axis)
+  // ---------------------------------------------------------------
   for (let i = 0; i <= 6; i++) {
-    let v = minMAC + (i / 6) * (maxMAC - minMAC);
-    let ypos = y(v);
+    const macValue = minMAC + (i / 6) * (maxMAC - minMAC);
+    const ypos = y(macValue);
 
     const line = document.createElementNS(svg.namespaceURI, "line");
     line.setAttribute("x1", margin.left);
@@ -18,13 +25,16 @@ export function drawGrid() {
     line.setAttribute("y1", ypos);
     line.setAttribute("y2", ypos);
     line.setAttribute("stroke", "#ddd");
-    grid.appendChild(line);
+
+    layer.appendChild(line);
   }
 
-  // Vertical gridlines (Abatement)
+  // ---------------------------------------------------------------
+  // 2. Vertical gridlines (Total abatement axis)
+  // ---------------------------------------------------------------
   for (let i = 0; i <= 6; i++) {
-    let v = (i / 6) * totalAbate;
-    let xpos = x(v);
+    const v = domainLeft + (i / 6) * (domainRight - domainLeft);
+    const xpos = x(v);
 
     const line = document.createElementNS(svg.namespaceURI, "line");
     line.setAttribute("x1", xpos);
@@ -32,6 +42,7 @@ export function drawGrid() {
     line.setAttribute("y1", margin.top);
     line.setAttribute("y2", margin.top + innerH);
     line.setAttribute("stroke", "#eee");
-    grid.appendChild(line);
+
+    layer.appendChild(line);
   }
 }
