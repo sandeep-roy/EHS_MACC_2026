@@ -21,8 +21,7 @@ export function drawBars() {
     bar.setAttribute("y", d.mac >= 0 ? y(d.mac) : y0);
     bar.setAttribute("height", Math.abs(y(d.mac) - y0));
     bar.setAttribute("fill", macColor(d.mac));
-    bar.setAttribute("stroke", "#333");
-    bar.setAttribute("stroke-width", "1.2");
+    bar.setAttribute("stroke-width", "0.3");
     bar.style.cursor = "pointer";
     bar.__row = d;
 
