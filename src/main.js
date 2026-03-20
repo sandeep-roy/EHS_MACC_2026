@@ -20,6 +20,7 @@ import { drawAxes } from "./draw/drawAxes.js";
 import { drawXTicks } from "./draw/drawXTicks.js";
 import { drawBars } from "./draw/drawBars.js";
 import { initTooltip } from "./draw/drawTooltip.js";
+import { drawCurve } from "./draw/drawCurve.js";
 
 import { initWheelZoom } from "./event/wheel.js";
 import { initPan } from "./event/pan.js";
@@ -94,6 +95,7 @@ export function render() {
   drawGrid();     // background grid
   drawAxes();     // y-axis ticks, labels, zero line
   drawBars();     // MACC bars
+  drawCurve();
   drawXTicks();   // x-axis tick labels (on top)
 
   // Tooltip remains active and works automatically
