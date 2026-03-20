@@ -24,61 +24,50 @@ export function initBoxZoom() {
     svg.appendChild(rect);
   });
 
-  svg.addEventListener("mousemove", e => {
-    if (startX === null || !rect) return;
-
-    const x1 = Math.min(startX, e.offsetX);
-    const x2 = Math.max(startX, e.offsetX);
-
-    rect.setAttribute("x", x1);
-    rect.setAttribute("width", Math.abs(x2 - x1));
-  });
-
   svg.addEventListener("mouseup", e => {
-    if (startX === null || !rect) return;
+  if (startX === null || !rect) return;
 
-    const endX = e.offsetX;
+  const endX = e.offsetX;
 
-    const x1 = Math.min(startX, endX);
-    const x2 = Math.max(startX, endX);
+  const x1 = Math.min(startX, endX);
+  const x2 = Math.max(startX, endX);
 
-    // Clean up selection rectangle
-    rect.remove();
-    rect = null;
+  rect.remove();
+  rect = null;
 
-    const minSelect = x1;
-    const maxSelect = x2;
-
-    if (Math.abs(maxSelect - minSelect) < 20) {
-      // too small → treat as click
-      startX = null;
-      return;
-    }
-
-    // ----- Convert screen coords to "world" coords -----
-    const { margin } = state.layout;
-    const left = screenToWorld(minSelect, margin.left);
-    const right = screenToWorld(maxSelect, margin.left);
-
-    // compute new scale
-    const visibleWidth = right - left;
-    const total = state.scales.totalAbate;
-    const newScale = state.layout.innerW / ((visibleWidth / total) * state.layout.innerW);
-
-    // update global state
-    state.scale = newScale;
-
-    // adjust translateX so left edge aligns with view
-    state.translateX = margin.left - (left - margin.left) * newScale;
-
-    clampTransform();
-    applyTransform();
-
+  if (Math.abs(x2 - x1) < 20) {
     startX = null;
-  });
-}
+    return;
+  }
 
+  // Convert screen → world correctly
+  const leftWorld = screenToWorld(x1);
+  const rightWorld = screenToWorld(x2);
+
+  // width selected in world-space
+  const selectedWidth = rightWorld - leftWorld;
+
+  // world width of full bar area
+  const totalWorldWidth = state.scales.totalAbate;
+
+  // compute scale factor
+  const newScale = (state.layout.innerW / (selectedWidth * (state.layout.innerW / totalWorldWidth)));
+
+  state.scale = Math.min(5, Math.max(0.3, newScale));
+
+  // compute translateX so leftWorld aligns with margin.left
+  state.translateX =
+    state.layout.margin.left - (leftWorld - state.layout.margin.left) * state.scale;
+
+  clampTransform();
+  applyTransform();
+
+  startX = null;
+});
+}
 // Helper to transform screen coordinate back to world coordinate
-function screenToWorld(screenX, marginLeft) {
-  return marginLeft + (screenX - marginLeft - state.translateX) / state.scale;
+
+function screenToWorld(screenX) {
+  const { margin } = state.layout;
+  return margin.left + ((screenX - state.translateX - margin.left) / state.scale);
 }
