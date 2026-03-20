@@ -68,10 +68,4 @@ export function prepareData() {
 
   state.scales.minMAC = minMAC;
   state.scales.maxMAC = maxMAC;
-
-  // ------------------------------------------------------------------
-  // INITIAL DOMAIN SETUP (critical for domain-based zoom)
-  // ------------------------------------------------------------------
-  state.scales.domainLeft = 0;
-  state.scales.domainRight = totalAbate;
 }
