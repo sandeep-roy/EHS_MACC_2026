@@ -15,6 +15,7 @@ import { initWheelZoom } from "./event/wheel.js";
 import { initPan } from "./event/pan.js";
 import { initZoomButtons } from "./event/zoomButtons.js";
 import { initResize } from "./event/resize.js";
+import { initBoxZoom } from "./event/boxZoom.js";
 
 export function initMACC() {
   state.svg = document.getElementById("svg");
@@ -25,6 +26,7 @@ export function initMACC() {
   initPan();
   initZoomButtons();
   initResize();
+  initBoxZoom();
 
   window.addEventListener("message", event => {
     if (event.data?.type === "update") {
