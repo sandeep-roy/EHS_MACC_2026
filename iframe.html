@@ -2,31 +2,41 @@
 <html>
 <head>
   <meta charset="UTF-8" />
+  <title>Marginal Abatement Cost Curve</title>
+
   <style>
     html, body {
-      width: 100%;
-      height: 100%;
       margin: 0;
       padding: 0;
+      width: 100%;
+      height: 100%;
       overflow: hidden;
-      font-family: Arial;
+      font-family: Arial, sans-serif;
     }
-    #svg { position: absolute; width: 100%; height: 100%; }
+
+    #svg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
 
     #tooltip {
       position: absolute;
-      background: rgba(0,0,0,.85);
+      background: rgba(0, 0, 0, 0.85);
       color: #fff;
       padding: 6px 10px;
       border-radius: 4px;
       font-size: 12px;
       pointer-events: none;
       display: none;
-      max-width: 350px;
-      line-height: 1.2em;
+      max-width: 300px;
       z-index: 100;
+      line-height: 1.3em;
     }
 
+    /* UI: Zoom controls */
     #zoom-controls {
       position: absolute;
       top: 10px;
@@ -36,17 +46,21 @@
       gap: 6px;
       z-index: 200;
     }
+
     #zoom-controls button {
-      background: #fff;
-      border: 1px solid #444;
-      border-radius: 5px;
       width: 32px;
       height: 32px;
-      cursor: pointer;
-      font-size: 18px;
+      border: 1px solid #444;
+      background: white;
       font-weight: bold;
+      font-size: 18px;
+      cursor: pointer;
+      border-radius: 4px;
     }
-    #zoom-controls button:hover { background: #e5e5e5; }
+
+    #zoom-controls button:hover {
+      background: #e9e9e9;
+    }
   </style>
 </head>
 
@@ -54,7 +68,7 @@
 
 <div id="zoom-controls">
   <button id="zoom-in">+</button>
-  <button id="zoom-out">-</button>
+  <button id="zoom-out">−</button>
   <button id="zoom-reset">⟳</button>
   <button id="zoom-box">▭</button>
 </div>
