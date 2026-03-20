@@ -1,42 +1,70 @@
+// ======================================================================
+// scales.js — Domain-based X/Y scaling with full safety
+// ======================================================================
+
 import { state } from "./state.js";
 
 export function applyScales() {
   const { rows } = state;
-
   if (!rows || rows.length === 0) return;
 
   const { margin, innerW, innerH } = state.layout;
-  let { domainLeft, domainRight, minMAC, maxMAC } = state.scales;
 
-  /*if (domainRight <= domainLeft) {
+  let domainLeft  = state.scales.domainLeft;
+  let domainRight = state.scales.domainRight;
+  const totalAb   = state.scales.totalAbate;
+
+  // -------------------------------------------------------------
+  // DOMAIN SAFETY — critical to prevent NaN and Infinity errors
+  // -------------------------------------------------------------
+
+  // Uninitialized domain handling
+  if (domainLeft == null || domainRight == null) {
     domainLeft = 0;
-    domainRight = state.scales.totalAbate || 1;
-    state.scales.domainLeft = domainLeft;
-    state.scales.domainRight = domainRight;
-  }*/
-  if (!isFinite(domainLeft) || !isFinite(domainRight) || domainRight <= domainLeft) {
-    // Reset to full domain
-    domainLeft = 0;
-    domainRight = state.scales.totalAbate;
-    state.scales.domainLeft = domainLeft;
-    state.scales.domainRight = domainRight;
+    domainRight = totalAb;
   }
 
+  // Replace invalid values
+  if (!isFinite(domainLeft))  domainLeft = 0;
+  if (!isFinite(domainRight)) domainRight = totalAb;
+
+  // Protect against collapse to zero width
+  if (domainRight - domainLeft < 1) {
+    const mid = (domainLeft + domainRight) / 2;
+    domainLeft  = mid - 0.5;
+    domainRight = mid + 0.5;
+  }
+
+  // Clamp domain boundaries
+  domainLeft  = Math.max(0, domainLeft);
+  domainRight = Math.min(totalAb, domainRight);
+
+  // Save cleaned domain
+  state.scales.domainLeft  = domainLeft;
+  state.scales.domainRight = domainRight;
 
   const domainRange = domainRight - domainLeft;
-
-  // Avoid division by zero
   if (domainRange <= 0) return;
 
+  // -------------------------------------------------------------
+  // X SCALE — domain to pixel
+  // -------------------------------------------------------------
   const x = v =>
     margin.left + ((v - domainLeft) / domainRange) * innerW;
+
+  // -------------------------------------------------------------
+  // Y SCALE — MAC value to pixel
+  // -------------------------------------------------------------
+  const minMAC = state.scales.minMAC;
+  const maxMAC = state.scales.maxMAC;
 
   const y = val =>
     margin.top +
     (1 - (val - minMAC) / (maxMAC - minMAC)) * innerH;
 
-  // Zero line
   const y0 = y(0);
+
+  // Save scales
   state.scales.x = x;
   state.scales.y = y;
   state.scales.y0 = y0;
