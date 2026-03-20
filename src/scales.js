@@ -8,12 +8,20 @@ export function applyScales() {
   const { margin, innerW, innerH } = state.layout;
   let { domainLeft, domainRight, minMAC, maxMAC } = state.scales;
 
-  if (domainRight <= domainLeft) {
+  /*if (domainRight <= domainLeft) {
     domainLeft = 0;
     domainRight = state.scales.totalAbate || 1;
     state.scales.domainLeft = domainLeft;
     state.scales.domainRight = domainRight;
+  }*/
+  if (!isFinite(domainLeft) || !isFinite(domainRight) || domainRight <= domainLeft) {
+    // Reset to full domain
+    domainLeft = 0;
+    domainRight = state.scales.totalAbate;
+    state.scales.domainLeft = domainLeft;
+    state.scales.domainRight = domainRight;
   }
+
 
   const domainRange = domainRight - domainLeft;
 
