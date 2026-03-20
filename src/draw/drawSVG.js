@@ -24,6 +24,7 @@ export function drawSVGBase() {
 
     <!-- Bars are clipped & anchored in world-space -->
     <g id="barLayer" clip-path="url(#plotClip)"></g>
+    <g id="curveLayer" clip-path="url(#plotClip)"></g>   <!-- NEW -->
 
     <g id="xTickTextLayer"></g>
     <g id="xAxisLabelLayer"></g>
