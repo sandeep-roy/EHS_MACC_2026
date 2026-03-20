@@ -3,28 +3,33 @@ import { state } from "./state.js";
 export function applyScales() {
   const { rows } = state;
 
-  const totalAb = rows.reduce((s, r) => s + r.abate, 0);
-  state.scales.totalAbate = totalAb;
+  if (!rows || rows.length === 0) return;
 
-  let minMAC = Math.min(...rows.map(r => r.mac));
-  let maxMAC = Math.max(...rows.map(r => r.mac));
-  const PAD = (maxMAC - minMAC) * 0.15;
+  const { margin, innerW, innerH } = state.layout;
+  let { domainLeft, domainRight, minMAC, maxMAC } = state.scales;
 
-  minMAC -= PAD;
-  maxMAC += PAD;
+  if (domainRight <= domainLeft) {
+    domainLeft = 0;
+    domainRight = state.scales.totalAbate || 1;
+    state.scales.domainLeft = domainLeft;
+    state.scales.domainRight = domainRight;
+  }
 
-  state.scales.minMAC = minMAC;
-  state.scales.maxMAC = maxMAC;
+  const domainRange = domainRight - domainLeft;
 
-  const { innerW, innerH, margin } = state.layout;
+  // Avoid division by zero
+  if (domainRange <= 0) return;
 
-  const scaleX = innerW / totalAb;
-  const x = v => margin.left + v * scaleX;
+  const x = v =>
+    margin.left + ((v - domainLeft) / domainRange) * innerW;
 
   const y = val =>
-    margin.top + (1 - (val - minMAC) / (maxMAC - minMAC)) * innerH;
+    margin.top +
+    (1 - (val - minMAC) / (maxMAC - minMAC)) * innerH;
 
+  // Zero line
+  const y0 = y(0);
   state.scales.x = x;
   state.scales.y = y;
-  state.scales.y0 = y(0);
+  state.scales.y0 = y0;
 }
