@@ -1,9 +1,5 @@
 // ======================================================================
-// pan.js — Horizontal panning for domain-based MACC chart
-// ======================================================================
-// This module provides stable, transform-free panning using domainLeft /
-// domainRight. As the user drags horizontally, the visible domain window
-// shifts accordingly, and the entire chart is re-rendered.
+// pan.js — Domain-based horizontal panning with boundary clamps
 // ======================================================================
 
 import { state } from "../state.js";
@@ -12,74 +8,66 @@ import { render } from "../main.js";
 export function initPan() {
   const svg = state.svg;
 
-  let startX = null;      // last pointer X in SVG space
   let isDragging = false;
+  let startX = null;
 
   svg.addEventListener("mousedown", evt => {
-    // Do NOT pan in box-zoom mode
+    if (evt.button !== 0) return;
+
     const zoomBtn = document.getElementById("zoom-box");
     const boxModeActive = zoomBtn && zoomBtn.style.background === "rgb(208, 224, 255)";
     if (boxModeActive) return;
 
-    if (evt.button !== 0) return; // left mouse only
-
-    startX = getSvgX(evt, svg);
     isDragging = true;
+    startX = getSvgX(evt, svg);
     svg.style.cursor = "grabbing";
   });
 
   svg.addEventListener("mousemove", evt => {
-    if (!isDragging || startX === null) return;
+    if (!isDragging) return;
 
     const curX = getSvgX(evt, svg);
-
-    const { margin, innerW } = state.layout;
-    const { domainLeft, domainRight } = state.scales;
-
-    const domainRange = domainRight - domainLeft;
-
-    // dx in pixel space
     const dx = curX - startX;
 
-    // convert pixel drag → world drag
+    const { domainLeft, domainRight, totalAbate } = state.scales;
+    const domainRange = domainRight - domainLeft;
+    const { innerW } = state.layout;
+
     const moveWorld = (dx / innerW) * domainRange;
 
-    // shift domain window
-    state.scales.domainLeft -= moveWorld;
-    state.scales.domainRight -= moveWorld;
+    let newLeft  = domainLeft - moveWorld;
+    let newRight = domainRight - moveWorld;
 
-    // remember last X for continued dragging
+    // Clamp to boundaries
+    if (newLeft < 0) {
+      newRight += -newLeft;
+      newLeft = 0;
+    }
+    if (newRight > totalAbate) {
+      const excess = newRight - totalAbate;
+      newLeft -= excess;
+      newRight = totalAbate;
+    }
+
+    state.scales.domainLeft  = newLeft;
+    state.scales.domainRight = newRight;
+
     startX = curX;
-
-    // re-render entire chart
     render();
   });
 
-  svg.addEventListener("mouseup", () => {
-    if (isDragging) {
-      isDragging = false;
-      svg.style.cursor = "default";
-    }
-  });
-
-  // In some cases mouse may leave the chart area mid-drag
-  svg.addEventListener("mouseleave", () => {
-    if (isDragging) {
-      isDragging = false;
-      svg.style.cursor = "default";
-    }
-  });
+  svg.addEventListener("mouseup", () => stopPan(svg));
+  svg.addEventListener("mouseleave", () => stopPan(svg));
 }
 
-// ======================================================================
-// Convert mouse → SVG X coordinate using CTM transform
-// This is SAC-compatible and stable under iframe resizing.
-// ======================================================================
+function stopPan(svg) {
+  svg.style.cursor = "default";
+  svg.dispatchEvent(new Event("mouseup", { bubbles: false }));
+}
+
 function getSvgX(evt, svg) {
   const pt = svg.createSVGPoint();
   pt.x = evt.clientX;
   pt.y = evt.clientY;
-
-  const svgPoint = pt.matrixTransform(svg.getScreenCTM().inverse());
-  return svgPoint.x;
+  return pt.matrixTransform(svg.getScreenCTM().inverse()).x;
 }
