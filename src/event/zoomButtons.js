@@ -1,39 +1,40 @@
+// ======================================================================
+// zoomButtons.js — Zoom-in, Zoom-out, Reset (Domain-Based)
+// ======================================================================
+
 import { state } from "../state.js";
-import { clampTransform, applyTransform } from "../utils/math.js";
+import { render } from "../main.js";
 
 export function initZoomButtons() {
-  const zoomIn = document.getElementById("zoom-in");
-  const zoomOut = document.getElementById("zoom-out");
-  const zoomReset = document.getElementById("zoom-reset");
+  const btnIn = document.getElementById("zoom-in");
+  const btnOut = document.getElementById("zoom-out");
+  const btnReset = document.getElementById("zoom-reset");
 
-  const svg = state.svg;
+  btnIn.onclick = () => zoomDomain(0.8);     // zoom in
+  btnOut.onclick = () => zoomDomain(1.25);   // zoom out
+  btnReset.onclick = () => resetDomain();
+}
 
-  zoomIn.onclick = () => {
-    const mx = svg.clientWidth / 2;
-    const oldScale = state.scale;
+// Zoom by factor
+function zoomDomain(factor) {
+  let { domainLeft, domainRight } = state.scales;
+  const { margin, innerW } = state.layout;
 
-    state.scale = Math.min(5, state.scale + 0.2);
-    state.translateX = mx - ((mx - state.translateX) * (state.scale / oldScale));
+  const domainRange = domainRight - domainLeft;
+  const newRange = domainRange * factor;
 
-    clampTransform();
-    applyTransform();
-  };
+  const mid = domainLeft + domainRange / 2;
 
-  zoomOut.onclick = () => {
-    const mx = svg.clientWidth / 2;
-    const oldScale = state.scale;
+  state.scales.domainLeft = mid - newRange / 2;
+  state.scales.domainRight = mid + newRange / 2;
 
-    state.scale = Math.max(0.3, state.scale - 0.2);
-    state.translateX = mx - ((mx - state.translateX) * (state.scale / oldScale));
+  // Re-render
+  render();
+}
 
-    clampTransform();
-    applyTransform();
-  };
-
-  zoomReset.onclick = () => {
-    state.scale = 1;
-    state.translateX = 0;
-    clampTransform();
-    applyTransform();
-  };
+// Reset full domain
+function resetDomain() {
+  state.scales.domainLeft = 0;
+  state.scales.domainRight = state.scales.totalAbate;
+  render();
 }
