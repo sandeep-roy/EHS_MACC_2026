@@ -6,6 +6,7 @@ let boxMode = false;
 export function initBoxZoom() {
   const svg = state.svg;
   const btn = document.getElementById("zoom-box");
+  const overlay = svg.querySelector("#overlayLayer");
 
   let startX = null;
   let rect = null;
@@ -13,19 +14,15 @@ export function initBoxZoom() {
   btn.onclick = () => {
     boxMode = !boxMode;
     btn.style.background = boxMode ? "#d0e0ff" : "#fff";
-
-    // disable bars tooltips during box mode
     svg.style.cursor = boxMode ? "crosshair" : "default";
   };
 
   svg.addEventListener("mousedown", e => {
-    if (!boxMode) return;
-    if (e.button !== 0) return;
+    if (!boxMode || e.button !== 0) return;
 
-    startX = e.offsetX;
+    startX = getSvgX(e, svg);
 
     rect = document.createElementNS(svg.namespaceURI, "rect");
-    rect.setAttribute("id", "box-zoom-rect");
     rect.setAttribute("y", state.layout.margin.top);
     rect.setAttribute("height", state.layout.innerH);
     rect.setAttribute("fill", "rgba(0, 120, 215, 0.25)");
@@ -34,32 +31,31 @@ export function initBoxZoom() {
     rect.setAttribute("stroke-dasharray", "4 2");
     rect.style.pointerEvents = "none";
 
-    svg.appendChild(rect);
+    overlay.appendChild(rect);
   });
 
   svg.addEventListener("mousemove", e => {
-    if (!boxMode) return;
-    if (startX === null || !rect) return;
+    if (!boxMode || startX === null || !rect) return;
 
-    const x1 = Math.min(startX, e.offsetX);
-    const x2 = Math.max(startX, e.offsetX);
+    const x = getSvgX(e, svg);
+
+    const x1 = Math.min(startX, x);
+    const x2 = Math.max(startX, x);
 
     rect.setAttribute("x", x1);
     rect.setAttribute("width", x2 - x1);
   });
 
   svg.addEventListener("mouseup", e => {
-    if (!boxMode) return;
-    if (startX === null || !rect) return;
+    if (!boxMode || startX === null || !rect) return;
 
-    const endX = e.offsetX;
+    const endX = getSvgX(e, svg);
 
     const x1 = Math.min(startX, endX);
     const x2 = Math.max(startX, endX);
 
     rect.remove();
     rect = null;
-
     boxMode = false;
     btn.style.background = "#fff";
 
@@ -73,10 +69,9 @@ export function initBoxZoom() {
 
     const worldWidth = rightWorld - leftWorld;
     const totalAb = state.scales.totalAbate;
-    const pxPerWorldUnit = state.layout.innerW / totalAb;
+    const pxPerWorld = state.layout.innerW / totalAb;
 
-    state.scale = (state.layout.innerW / (worldWidth * pxPerWorldUnit));
-
+    state.scale = state.layout.innerW / (worldWidth * pxPerWorld);
     state.translateX =
       state.layout.margin.left -
       (leftWorld - state.layout.margin.left) * state.scale;
@@ -86,6 +81,13 @@ export function initBoxZoom() {
 
     startX = null;
   });
+}
+
+function getSvgX(evt, svg) {
+  const pt = svg.createSVGPoint();
+  pt.x = evt.clientX;
+  pt.y = evt.clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse()).x;
 }
 
 function screenToWorld(screenX) {
