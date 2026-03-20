@@ -1,7 +1,6 @@
 // ======================================================================
 // drawGrid.js — Draws MACC chart grid lines using domain-based x-scale
 // ======================================================================
-
 import { state } from "../state.js";
 
 export function drawGrid() {
