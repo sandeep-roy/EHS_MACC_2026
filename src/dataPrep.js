@@ -68,4 +68,10 @@ export function prepareData() {
 
   state.scales.minMAC = minMAC;
   state.scales.maxMAC = maxMAC;
+  
+if (state.scales.domainRight === null) {
+    state.scales.domainLeft = 0;
+    state.scales.domainRight = totalAbate;
+}
+
 }
