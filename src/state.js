@@ -22,6 +22,8 @@ export const state = {
     y0: 0,
     totalAbate: 0,
     minMAC: 0,
-    maxMAC: 0
+    maxMAC: 0,
+    domainLeft: 0,
+    domainRight: null
   }
 };
