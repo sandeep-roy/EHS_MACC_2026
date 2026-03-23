@@ -1,5 +1,5 @@
 // ======================================================================
-// drawCurve.js — cumulative abatement curve (right Y axis)
+// drawCurve.js — cumulative curve, markers, tooltip
 // ======================================================================
 
 import { state } from "../state.js";
@@ -9,27 +9,57 @@ export function drawCurve() {
   const layer = svg.querySelector("#curveLayer");
   layer.innerHTML = "";
 
-  const { x, yCum } = state.scales;
+  const tip = state.tooltip;
   const rows = state.rows;
+  const { x, yCum } = state.scales;
+
   if (!rows || rows.length === 0) return;
 
+  // ---- Build line path ----
   let dStr = "";
-
-  for (let i = 0; i < rows.length; i++) {
-    const d = rows[i];
-
-    const px = x(d.cum);
-    const py = yCum(d.cum);
-
-    if (i === 0) dStr += `M ${px},${py}`;
-    else dStr += ` L ${px},${py}`;
-  }
+  rows.forEach((r, i) => {
+    const px = x(r.cum);
+    const py = yCum(r.cum);
+    dStr += (i === 0 ? `M` : ` L`) + ` ${px},${py}`;
+  });
 
   const path = document.createElementNS(svg.namespaceURI, "path");
   path.setAttribute("d", dStr);
-  path.setAttribute("fill", "none");
   path.setAttribute("stroke", "#0066cc");
   path.setAttribute("stroke-width", "2.5");
-
+  path.setAttribute("fill", "none");
   layer.appendChild(path);
+
+  // ---- Add marker circles ----
+  rows.forEach(r => {
+    const dot = document.createElementNS(svg.namespaceURI, "circle");
+    dot.setAttribute("cx", x(r.cum));
+    dot.setAttribute("cy", yCum(r.cum));
+    dot.setAttribute("r", 4);
+    dot.setAttribute("fill", "#0066cc");
+    dot.__row = r;
+    layer.appendChild(dot);
+  });
+
+  // ---- Tooltip ----
+  svg.addEventListener("mousemove", evt => {
+    const el = document.elementFromPoint(evt.clientX, evt.clientY);
+
+    if (!el || el.tagName !== "circle" || !el.__row) {
+      tip.style.display = "none";
+      return;
+    }
+
+    const d = el.__row;
+
+    tip.style.display = "block";
+    tip.style.left = evt.clientX + 12 + "px";
+    tip.style.top = evt.clientY - 20 + "px";
+    tip.innerHTML = `
+      <b>${d.name}</b><br>
+      Cumulative: ${d.cum.toLocaleString()} tCO₂e<br>
+      MAC: ${d.mac}<br>
+      Abatement: ${d.abate}
+    `;
+  });
 }
