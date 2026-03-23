@@ -20,7 +20,7 @@ export const state = {
   // Populated inside layout.js
   // ---------------------------
   layout: {
-    margin: { top: 60, right: 80, bottom: 150, left: 200 },
+    margin: { top: 60, right: 160, bottom: 150, left: 200 },
     W: 0,
     H: 0,
     innerW: 0,
