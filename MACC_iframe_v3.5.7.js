@@ -42,27 +42,46 @@
     onCustomWidgetBeforeUpdate(p){if(p.maccBinding)this._ingest(p.maccBinding);}
     onCustomWidgetAfterUpdate(p){if(p.maccBinding)this._ingest(p.maccBinding);}
 
-    _ingest(binding){
-      const rows=binding.data||[];
-      const P=[],CAT=[],A=[],M=[],CUM=[],NPV=[],CAP=[],OPX=[];
+   _ingest(binding){
+  const rows = [];
 
-      for(const r of rows){
-        P.push(r.dimension_0?.label ?? r.dimension_0?.id ?? "");
-        CAT.push(r.dimension_cat_0?.label ?? "");
-        A.push(Number(r.measure_abate_0?.raw)||0);
-        M.push(Number(r.measure_mac_0?.raw)||0);
-        CUM.push(Number(r.measure_cum_0?.raw)||0);
-        NPV.push(Number(r.measure_npv_0?.raw)||0);
-        CAP.push(Number(r.measure_capex_0?.raw)||0);
-        OPX.push(Number(r.measure_opex_0?.raw)||0);
-      }
+  // 1. Build row objects from SAC binding data
+  for(const r of binding.data || []){
+    rows.push({
+      name: r.dimension_0?.label ?? r.dimension_0?.id ?? "",
+      cat:  r.dimension_cat_0?.label ?? "",
+      abate: Number(r.measure_abate_0?.raw) || 0,
+      mac:   Number(r.measure_mac_0?.raw) || 0,
+      npv:   Number(r.measure_npv_0?.raw) || 0,
+      capex: Number(r.measure_capex_0?.raw) || 0,
+      opex:  Number(r.measure_opex_0?.raw) || 0
+    });
+  }
 
-      this._data={project:P,category:CAT,abatement:A,
-                  mac:M,cumulative:CUM,npv:NPV,
-                  capex:CAP,opex:OPX};
-      this._render();
-    }
+  // 2. Sort rows by MAC (core MACC logic)
+  rows.sort((a,b)=> a.mac - b.mac);
 
+  // 3. Rebuild TRUE cumulative abatement
+  let cum = 0;
+  for(const r of rows){
+    cum += r.abate;
+    r.cum = cum;
+  }
+
+  // 4. Store final arrays for the iframe chart
+  this._data = {
+    project:    rows.map(r=>r.name),
+    category:   rows.map(r=>r.cat),
+    abatement:  rows.map(r=>r.abate),
+    mac:         rows.map(r=>r.mac),
+    cumulative:  rows.map(r=>r.cum),
+    npv:        rows.map(r=>r.npv),
+    capex:      rows.map(r=>r.capex),
+    opex:       rows.map(r=>r.opex)
+  };
+
+  this._render();
+}
     _onMessage(evt){
       if(evt.source!==this._frame.contentWindow)return;
 
