@@ -1,5 +1,5 @@
 // ======================================================================
-// scales.js — MAC scale (left axis) + cumulative scale (right axis)
+// scales.js — MAC scale (left) + cumulative scale (right)
 // ======================================================================
 
 import { state } from "./state.js";
@@ -10,23 +10,25 @@ export function applyScales() {
 
   const { margin, innerW, innerH } = state.layout;
 
-  let domainLeft = state.scales.domainLeft;
+  // ------------------ DOMAIN HANDLING ------------------
+  let domainLeft  = state.scales.domainLeft;
   let domainRight = state.scales.domainRight;
-  const totalAb = state.scales.totalAbate;
+  const totalAb   = state.scales.totalAbate;
 
-  // ------------------ DOMAIN SAFETY ------------------
   if (domainLeft == null || domainRight == null) {
     domainLeft = 0;
     domainRight = totalAb;
   }
 
-  if (!isFinite(domainLeft))  domainLeft = 0;
+  if (!isFinite(domainLeft)) domainLeft = 0;
   if (!isFinite(domainRight)) domainRight = totalAb;
 
-  if (domainRight - domainLeft < 500) {
+  // enforce minimum zoom range
+  const MIN_RANGE = 500;
+  if (domainRight - domainLeft < MIN_RANGE) {
     const mid = (domainLeft + domainRight) / 2;
-    domainLeft  = mid - 250;
-    domainRight = mid + 250;
+    domainLeft  = mid - MIN_RANGE/2;
+    domainRight = mid + MIN_RANGE/2;
   }
 
   domainLeft  = Math.max(0, domainLeft);
@@ -37,29 +39,20 @@ export function applyScales() {
 
   const domainRange = domainRight - domainLeft;
 
-  // ------------------ X SCALE ------------------------
-  const x = v =>
-    margin.left + ((v - domainLeft) / domainRange) * innerW;
+  // ------------------ X SCALE (shared) ------------------
+  const x = v => margin.left + ((v - domainLeft) / domainRange) * innerW;
 
-  // ------------------ MAC Y-SCALE (LEFT AXIS) --------
+  // ------------------ Y SCALE (MAC - left axis) ------------------
   const minMAC = state.scales.minMAC;
   const maxMAC = state.scales.maxMAC;
-
-  const y = val =>
-    margin.top +
-    (1 - (val - minMAC) / (maxMAC - minMAC)) * innerH;
-
+  const y = v => margin.top + (1 - (v - minMAC)/(maxMAC-minMAC)) * innerH;
   const y0 = y(0);
 
-  // ------------------ CUMULATIVE Y-SCALE (RIGHT AXIS) ----------
+  // ------------------ Y SCALE (CUMULATIVE - right axis) ------------------
   const maxCUM = Math.max(...rows.map(r => r.cum));
-  const minCUM = 0;
+  const yCum = v => margin.top + (1 - v/maxCUM) * innerH;
 
-  const yCum = val =>
-    margin.top +
-    (1 - (val - minCUM) / (maxCUM - minCUM)) * innerH;
-
-  // Store results
+  // save all scales
   state.scales.x = x;
   state.scales.y = y;
   state.scales.y0 = y0;
