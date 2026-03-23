@@ -1,59 +1,52 @@
 // ======================================================================
-// scales.js — Domain-based X/Y scaling with full safety
+// scales.js — Domain-based X/Y scaling with cumulative curve support
 // ======================================================================
 
 import { state } from "./state.js";
 
 export function applyScales() {
-  const { rows } = state;
+  const rows = state.rows;
   if (!rows || rows.length === 0) return;
 
   const { margin, innerW, innerH } = state.layout;
 
-  let domainLeft  = state.scales.domainLeft;
+  let domainLeft = state.scales.domainLeft;
   let domainRight = state.scales.domainRight;
-  const totalAb   = state.scales.totalAbate;
+  const totalAb = state.scales.totalAbate;
 
   // -------------------------------------------------------------
-  // DOMAIN SAFETY — critical to prevent NaN and Infinity errors
+  // DOMAIN SAFETY
   // -------------------------------------------------------------
-
-  // Uninitialized domain handling
   if (domainLeft == null || domainRight == null) {
     domainLeft = 0;
     domainRight = totalAb;
   }
 
-  // Replace invalid values
-  if (!isFinite(domainLeft))  domainLeft = 0;
+  if (!isFinite(domainLeft)) domainLeft = 0;
   if (!isFinite(domainRight)) domainRight = totalAb;
 
-  // Protect against collapse to zero width
-  if (domainRight - domainLeft < 1) {
+  if (domainRight - domainLeft < 500) {
     const mid = (domainLeft + domainRight) / 2;
-    domainLeft  = mid - 0.5;
-    domainRight = mid + 0.5;
+    domainLeft = mid - 250;
+    domainRight = mid + 250;
   }
 
-  // Clamp domain boundaries
-  domainLeft  = Math.max(0, domainLeft);
+  domainLeft = Math.max(0, domainLeft);
   domainRight = Math.min(totalAb, domainRight);
 
-  // Save cleaned domain
-  state.scales.domainLeft  = domainLeft;
+  state.scales.domainLeft = domainLeft;
   state.scales.domainRight = domainRight;
 
   const domainRange = domainRight - domainLeft;
-  if (domainRange <= 0) return;
 
   // -------------------------------------------------------------
-  // X SCALE — domain to pixel
+  // X SCALE — domain → pixel
   // -------------------------------------------------------------
   const x = v =>
     margin.left + ((v - domainLeft) / domainRange) * innerW;
 
   // -------------------------------------------------------------
-  // Y SCALE — MAC value to pixel
+  // Y SCALE (MAC)
   // -------------------------------------------------------------
   const minMAC = state.scales.minMAC;
   const maxMAC = state.scales.maxMAC;
@@ -64,8 +57,17 @@ export function applyScales() {
 
   const y0 = y(0);
 
-  // Save scales
+  // -------------------------------------------------------------
+  // CUMULATIVE CURVE SCALE (NEW)
+  // -------------------------------------------------------------
+  const maxCUM = Math.max(...rows.map(r => r.cum));
+  const yCum = v =>
+    margin.top + (1 - v / maxCUM) * innerH;
+
+  // Save results
   state.scales.x = x;
   state.scales.y = y;
   state.scales.y0 = y0;
+  state.scales.yCum = yCum;
+  state.scales.maxCUM = maxCUM;
 }
