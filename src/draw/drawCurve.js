@@ -40,26 +40,4 @@ export function drawCurve() {
     dot.__row = r;
     layer.appendChild(dot);
   });
-
-  // ---- Tooltip ----
-  svg.addEventListener("mousemove", evt => {
-    const el = document.elementFromPoint(evt.clientX, evt.clientY);
-
-    if (!el || el.tagName !== "circle" || !el.__row) {
-      tip.style.display = "none";
-      return;
-    }
-
-    const d = el.__row;
-
-    tip.style.display = "block";
-    tip.style.left = evt.clientX + 12 + "px";
-    tip.style.top = evt.clientY - 20 + "px";
-    tip.innerHTML = `
-      <b>${d.name}</b><br>
-      Cumulative: ${d.cum.toLocaleString()} tCO₂e<br>
-      MAC: ${d.mac}<br>
-      Abatement: ${d.abate}
-    `;
-  });
 }
