@@ -1,5 +1,5 @@
 // ======================================================================
-// drawCurve.js — cumulative abatement curve (domain-based)
+// drawCurve.js — cumulative abatement curve (right Y axis)
 // ======================================================================
 
 import { state } from "../state.js";
@@ -18,8 +18,8 @@ export function drawCurve() {
   for (let i = 0; i < rows.length; i++) {
     const d = rows[i];
 
-    const px = x(d.cum);     // X = cumulative abatement
-    const py = yCum(d.cum);  // Y = cumulative measure
+    const px = x(d.cum);
+    const py = yCum(d.cum);
 
     if (i === 0) dStr += `M ${px},${py}`;
     else dStr += ` L ${px},${py}`;
