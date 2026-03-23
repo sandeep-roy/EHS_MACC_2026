@@ -55,7 +55,7 @@ export function drawAxes() {
 
     const label = document.createElementNS(svg.namespaceURI, "text");
     label.textContent = Math.round(cumVal).toLocaleString();
-    label.setAttribute("x", margin.left + innerW + 10);
+    label.setAttribute("x", margin.left + innerW + 20);
     label.setAttribute("y", ypos + 4);
     label.setAttribute("text-anchor", "start");
     label.setAttribute("font-size", "13");
@@ -97,7 +97,7 @@ export function drawAxes() {
   ylabRight.textContent = "Cumulative Abatement (tCO₂e)";
   ylabRight.setAttribute("transform", "rotate(-90)");
   ylabRight.setAttribute("x", -H / 2);
-  ylabRight.setAttribute("y", margin.left + innerW + 60);
+  ylabRight.setAttribute("y", margin.left + innerW + 90);
   ylabRight.setAttribute("text-anchor", "middle");
   ylabRight.setAttribute("font-size", "18");
   yAxisLeft.appendChild(ylabRight);
