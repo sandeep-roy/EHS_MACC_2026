@@ -93,7 +93,7 @@
     }
 
     _render(){
-      this._frame.src="https://sandeep-roy.github.io/EHS_MACC_2026/iframe.html?v=1.0";
+      this._frame.src="https://sandeep-roy.github.io/EHS_MACC_2026/iframe.html?v=2";
 
       let attempts=0;
       const trySend=()=>{
