@@ -5,6 +5,9 @@
 import { state } from "../state.js";
 
 export function drawCurve() {
+  
+if (state.curveVisible === false) return;
+
   const svg = state.svg;
   const layer = svg.querySelector("#curveLayer");
   const tip = state.tooltip;
