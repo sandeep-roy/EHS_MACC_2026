@@ -26,6 +26,7 @@ import { initWheelZoom } from "./event/wheel.js";
 import { initPan } from "./event/pan.js";
 import { initBoxZoom } from "./event/boxZoom.js";
 import { initZoomButtons } from "./event/zoomButtons.js";
+import { initToggleCurve } from "./event/toggleCurve.js";
 
 // ======================================================================
 // initMACC() — Entry point from iframe.html
@@ -42,6 +43,8 @@ export function initMACC() {
   initPan();
   initBoxZoom();
   initZoomButtons();
+  initToggleCurve();
+
 
   // ------------------------------
   // Listen for SAC custom widget data
